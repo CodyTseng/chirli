@@ -1,0 +1,56 @@
+{
+  "provenance": {
+    "path": "src/services/crypto/nip17-gift-wrap.ts",
+    "sha256": "044b2df3aafb8fcc97cba06335d596b59ba6f04c7e2f9c2c6885f7ae14a5304c",
+    "note": "Generated using unchanged extracted upstream envelope functions, software keys only. All keys are disposable fixture keys."
+  },
+  "recipient": {
+    "pubkey": "80f66c78e1fc389d263594873c1bf6348e98c9a9aa3ba0f46dae5f733bf553ce",
+    "encryptionSecret": "c8fa7820028801f1b8615ef4163bfbab1eaaa90dedeea9dc4e9247855085f462"
+  },
+  "rumor": {
+    "kind": 14,
+    "content": "upstream split-key fixture",
+    "created_at": 1700000001,
+    "tags": [
+      [
+        "p",
+        "80f66c78e1fc389d263594873c1bf6348e98c9a9aa3ba0f46dae5f733bf553ce"
+      ],
+      [
+        "ms",
+        "123"
+      ]
+    ],
+    "pubkey": "12344f89cffd7c9b3548735892e4165200ec5150988a516a654c1faf8ac89902",
+    "id": "c1117d2b2153592b3a37b7bc658200d9b11ca8de308377a2b7c1e3326d1eef99"
+  },
+  "seal": {
+    "kind": 13,
+    "content": "AuPXvXcJvo9ftBWE+Y6+euF1ASCx5t3zXn983gHdH3LFD3gbX8KSMEtrdzyVIPGPA6UKbr8jwsLymznzS86Ch20AtEo3pjHsjFX+FZvNRvfNRy4BXtGLwYhGL+rioJhIH5ibRIO5S8l2Y7BkXJdAME1whrkWiOZQwLDnzeSrv38yLiO9XEdWbFNPPheUC5qwb+grK2Kv4/UwtAtMqPfNmoaim4B2pRU3FZMe+SrWPyt0PKbhliFxXeVg8NfmznQNCtj0f8C67yXTb+ee9bt5nMyw9XAwgD7ddof3TDyPZh4cSIz094bXSE8ku4PPXHgGgDJv//UIkbueNMddx+Zd0ecBDufUe5L94HeK8RyEY+ckub1EaB0bTCpOOTnBYwfDp7OclUUPzoYyZZXSrCWOmUjfqNi1xDAYc4HeLo2Xc1iG8JMvjZG57mnN8+xUWu/yO3b29sg/KOtLoD0ypiEuoFCrU1PL6mkXeGixEBNluh68m43YLSyaoSR2iwDhQUP/sFn3",
+    "tags": [
+      [
+        "n",
+        "bf809f2f644d2b0d7bcd9340387fc568bc63519afe28061fc449a30173fbd877"
+      ]
+    ],
+    "created_at": 1700000001,
+    "pubkey": "12344f89cffd7c9b3548735892e4165200ec5150988a516a654c1faf8ac89902",
+    "id": "56c96d1631aa3e24de91a96e06a40e95b1123cb00615e77718e65c4cbd94b862",
+    "sig": "ab059ff5f639d789cf8cfb852684015d1f686c66550e5f3663a96b9353133518b6af1b2756654ad83ff75207baa0806b61868f190edd9e4c986e28a40502e7d9"
+  },
+  "giftWrap": {
+    "kind": 1059,
+    "content": "AjWrfbafYYmuSTFhXbB6vYopqsWupabJ18caENa5ljA+26n3fMl/v/5z5sbvvxCgurpomag5CAyKWFtWikjvApxdSO8a0MJrwXfXpgrXbTMDw65UegsOLIM6OsluItFw15xGQ5mGyFrGfAEWj4oXDqbQQ8ysG/yQeJAuhd10nUQRfgAos1ajdmECCWji6sWe01Z/jIddlN5Mfq/rfyvWEjPgp8yB5tyJeW+lYNDD9IVOkVd2h1mJkAb1g9uPnV71OLNMkJTLTxmfWysLFYgx//sM53CxbjPLORvwHHfTdeeyxN7wCKZpEV4zSwwaddFuxC7aG2JGU4e1Z+jcdhU6hoCkjhO/Y79ijhdSa3sB0IMk1p/HDverZGYn2SXEi972JDAysnl7H4NQTCiu6Ae5yZgLi2nca4rGIXKXCH3bTSRC6mpOe0Whpccm70w2G0LGRM85lQp4tBP9Kn5w6UiSO6mqt69ks3taahw0bJgSIVJlP/1zfgrA2s5RQk01qPdvAgSB+zppvS/hEKj770RzvR4UDSR/wMGS+kSR6dHm/qZZy9prxGH0pAs0L4VCpkdAJp1JN4yCOlSysahzTeGlNmETDMcOl1Xkh6MC4BU2HC+DS1VUXmH9m2dRx1+B9HPSKQTZJC2aqPrKZnkIpGr5m4dX3imzp+/C6LlyWMU4BtFqfXmJt1/TRv6CLMeAKh5bAZdh815BVeSwlZ6xrT4OiDTmXfkQym8UMgyvuvXC/kWZ8QLVoPGwo1b5S6TWye+7uRQzC2GqyXf6uDFCKMq66XtYanJHv+hoTahzfXfftDjtz31fBgpMVbx8AngBxsydJDJAxTrkDitsTTUBccTGxIu0bZ3CiUqpSucz139p2l4BM3Db0kHF9gOmQ25V+blj8yOXS02B2Rev//pss9gC7n9r/7f7RYTgX080ifJKQpdT0qlb51Uxw+I0aamWRPy8lGW6SCtuhoEWxXQytXUTsmNsPmhVjcEifZSiEoRYMJx9X7aNHgpsI9FFgiGqNscZoD6WsE8ymqciHcLtFr/hmd2vzWmu5kaDiRzGSyjmKXVhEc3ZK2hRY4shSnquafaaFjrzEIN7oDb+vRPuBc6LEuvKLt4AWJaWIhcRbVdCB5U11q3T0r+Fha9KMVuAF2NFf16p6KnHhUHCBFUB/TzdzA51UYedJiOOMJRFBko/PxFJSHLgjuoZcsNvhm6Jqve6cdC3dw02rfU+YcfuF5lxfaubQ75MW6MXsIFf1jtisRO3NHvLZImFvGeQjD7rM62HpAl1XOc1Pf/T1XpaTgiFJydQ1bvbZ3vmw7qu/sYNfTwcEqRd02Kgu2NsALW1H4WqNjp+LfoSNR7A7VPXVozIds3HPzY6pEbbn3HKiXSaZp2vMTkaOiJ6b+UhgzkrxFDD291dPIPlsWGe43+fvQf+k2hcs20ovGVVpq8zWpKp5JPC1jA=",
+    "tags": [
+      [
+        "p",
+        "80f66c78e1fc389d263594873c1bf6348e98c9a9aa3ba0f46dae5f733bf553ce"
+      ]
+    ],
+    "created_at": 1794599119,
+    "pubkey": "81a959a2c378246aa5b986663cfc74f4676690c36aa3e3844a633d5ca60a2f03",
+    "id": "49e0bf10605525d27605c78fcb5a1bb98c9df8fcad0c483670bfebc7863376fb",
+    "sig": "fc6444e4302dd303bbef3fdcbac4b7fdfc4859f63cdcbe678eb5ee28945b4c0cb3a5c353a991f14aa7734a916e5489eb87c5eb8b3eea52c6667bf1c8b6810d45"
+  }
+}

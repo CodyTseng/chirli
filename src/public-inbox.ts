@@ -1,0 +1,250 @@
+import type { Event } from 'nostr-tools';
+import { signChecked, type Identity } from './protocol.js';
+import { commandRelayURL, parseCommand, type CommandDefinition } from './nipcd.js';
+import { InboxSubscription, type ReconnectOptions } from './inbox.js';
+import { relayUnion } from './relay-roles.js';
+import { PublicThreads, publicEvent, threadStructure, referenceKey, commentReply, type PublicThreadOptions, type ThreadOptions } from './public-thread.js';
+import type { Store } from './store.js';
+import type { Transport } from './relay.js';
+export interface PublicInboxOptions {
+    relays: readonly string[];
+    thread?: PublicThreadOptions;
+}
+export interface PublicInput {
+    event: Event;
+    relay: string;
+    conversation: string;
+}
+interface Record {
+    event?: Event;
+    relay: string;
+    state: 'history' | 'pending' | 'processing' | 'failed' | 'done';
+}
+interface State {
+    version: 1;
+    records: {
+        [id: string]: Record;
+    };
+    outbox: {
+        event: Event;
+        relays: string[];
+    }[];
+}
+/** Explicit public command inbox. Never shares private message rows, conversation keys or outbox. */
+export class PublicInbox {
+    private state: State;
+    private subscriptions?: InboxSubscription;
+    private running = false;
+    private kinds = '';
+    private queues = new Map<string, Promise<void>>();
+    private scheduled = new Set<string>();
+    private flushing?: Promise<void>;
+    private relays: string[];
+    readonly threads: PublicThreads;
+    constructor(private identity: Identity, private store: Store, private transport: Transport, options: PublicInboxOptions, private writes: string[], private reconnect: false | ReconnectOptions | undefined, private definitions: () => CommandDefinition[], private allowed: (sender: string) => boolean, private process: (input: PublicInput) => Promise<void>, private report: (error: unknown) => void) {
+        if (!Array.isArray(options.relays) || !options.relays.length)
+            throw new TypeError('publicInbox.relays requires explicit relay URLs');
+        this.relays = [...new Set(options.relays.map(commandRelayURL))];
+        this.threads = new PublicThreads(transport, this.relays, options.thread);
+        this.state = store.metadata<State>('public-inputs') ?? { version: 1, records: {}, outbox: [] };
+        if (this.state.version !== 1 || !this.state.records || !Array.isArray(this.state.outbox))
+            throw new Error('Unsupported public input journal');
+        for (const record of Object.values(this.state.records))
+            if (record.state === 'processing')
+                record.state = 'pending';
+    }
+    private save() { this.store.saveMetadata('public-inputs', this.state); }
+    private conversation(event: Event) { const structure = threadStructure(event); return `public:${structure.root ? referenceKey(structure.root) : `e:${event.id}`}`; }
+    private accepted(event: Event, relay: string) {
+        if (![1, 1111].includes(event.kind) || event.pubkey === this.identity.pubkey || !this.relays.includes(commandRelayURL(relay)) || !this.allowed(event.pubkey))
+            return false;
+        try {
+            threadStructure(event);
+        }
+        catch {
+            return false;
+        }
+        return this.definitions().some(definition => {
+            const result = parseCommand(definition, event, { executor: this.identity.pubkey, relay });
+            if (result.status !== 'matched')
+                return false;
+            if (result.invocation.qualifier !== undefined)
+                return true;
+            const targets = new Set(event.tags.filter(tag => tag[0] === 'p').map(tag => tag[1]));
+            return targets.size === 1 && targets.has(this.identity.pubkey);
+        });
+    }
+    async start(kinds: number[]) {
+        const next = [...new Set(kinds)].sort().join(',');
+        if (this.running && next === this.kinds)
+            return;
+        this.subscriptions?.close();
+        this.subscriptions = undefined;
+        this.running = true;
+        this.kinds = next;
+        if (!kinds.length)
+            return;
+        this.subscriptions = new InboxSubscription({ transport: this.transport, store: this.store, relays: this.relays, filter: { kinds, limit: 500 }, recovery: false, reconnect: this.reconnect,
+            receive: async (event, source, relay) => { this.receive(event, source, relay); }, error: this.report, reconnected: () => this.flush() });
+        await this.subscriptions.ready;
+        if (!this.running)
+            return;
+        for (const [id, record] of Object.entries(this.state.records))
+            if (['pending', 'failed'].includes(record.state) && record.event)
+                this.enqueue(id, record);
+        await this.flush();
+    }
+    receive(input: Event, source: 'live' | 'history', relay?: string): boolean {
+        if (!this.running || !relay)
+            return false;
+        const event = publicEvent(input);
+        if (!event || !this.accepted(event, relay))
+            return false;
+        if (Object.hasOwn(this.state.records, event.id))
+            return false;
+        let evicted: [
+            string,
+            Record
+        ] | undefined;
+        if (Object.keys(this.state.records).length >= 5000) {
+            const old = Object.keys(this.state.records).find(id => ['history', 'done'].includes(this.state.records[id].state));
+            if (!old)
+                throw new Error('Public pending journal capacity exceeded');
+            evicted = [old, this.state.records[old]];
+            delete this.state.records[old];
+        }
+        const record: Record = { ...(source === 'live' ? { event } : {}), relay, state: source === 'history' ? 'history' : 'pending' };
+        this.state.records[event.id] = record;
+        try {
+            this.save();
+        }
+        catch (error) {
+            delete this.state.records[event.id];
+            if (evicted)
+                this.state.records[evicted[0]] = evicted[1];
+            throw error;
+        }
+        if (source === 'live')
+            this.enqueue(event.id, record);
+        return true;
+    }
+    private enqueue(id: string, record: Record) {
+        if (this.scheduled.has(id) || !record.event)
+            return;
+        const event = publicEvent(record.event);
+        if (!event || !this.accepted(event, record.relay)) {
+            record.state = 'done';
+            delete record.event;
+            this.save();
+            return;
+        }
+        const conversation = this.conversation(event);
+        this.scheduled.add(id);
+        const task = (this.queues.get(conversation) ?? Promise.resolve()).catch(() => { }).then(async () => {
+            if (!this.accepted(event, record.relay)) {
+                record.state = 'done';
+                delete record.event;
+                this.save();
+                return;
+            }
+            const previous = record.state;
+            record.state = 'processing';
+            try {
+                this.save();
+            }
+            catch (error) {
+                record.state = previous;
+                throw error;
+            }
+            try {
+                await this.process({ event: structuredClone(event), relay: record.relay, conversation });
+                record.state = 'done';
+                delete record.event;
+            }
+            catch (error) {
+                record.state = 'failed';
+                this.report(error);
+            }
+            try {
+                this.save();
+            }
+            catch (error) {
+                record.state = 'failed';
+                record.event = event;
+                throw error;
+            }
+        }).catch(error => this.report(error)).finally(() => {
+            this.scheduled.delete(id);
+            if (this.queues.get(conversation) === task)
+                this.queues.delete(conversation);
+        });
+        this.queues.set(conversation, task);
+    }
+    /** Signed public input is sufficient; provenance comes only from our own journal. */
+    target(input: Event): PublicInput {
+        const event=publicEvent(input);
+        if(!event || ![1,1111].includes(event.kind))throw new TypeError('Expected a valid signed kind 1/1111 event');
+        threadStructure(event);
+        const known=this.state.records[event.id]?.relay;
+        const relay=known&&this.relays.includes(commandRelayURL(known))?known:'';
+        return {event,relay,conversation:this.conversation(event)};
+    }
+    async reply(input: PublicInput, text: string) {
+        if (typeof text !== 'string' || !text.length)
+            throw new TypeError('Nonempty reply text required');
+        const root = await this.threads.rootForReply(input.event), event = await signChecked(this.identity, commentReply(input.event, root, text, input.relay));
+        const relays = relayUnion(this.writes, input.relay && this.relays.includes(commandRelayURL(input.relay)) ? [input.relay] : []);
+        this.state.outbox.push({ event, relays });
+        try {
+            this.save();
+        }
+        catch (error) {
+            this.state.outbox.pop();
+            throw error;
+        }
+        try {
+            await this.flush();
+        }
+        catch (error) {
+            this.report(error);
+        }
+        return { id: event.id, status: this.state.outbox.some(item => item.event.id === event.id) ? 'pending' as const : 'relay-accepted' as const };
+    }
+    flush(): Promise<void> {
+        if (this.flushing)
+            return this.flushing.then(() => this.flush());
+        const task = (async () => {
+            while (this.state.outbox.length) {
+                const item = this.state.outbox[0];
+                await this.transport.publish(item.relays, item.event);
+                this.state.outbox.shift();
+                try {
+                    this.save();
+                }
+                catch (error) {
+                    this.state.outbox.unshift(item);
+                    throw error;
+                }
+            }
+        })().finally(() => {
+            if (this.flushing === task)
+                this.flushing = undefined;
+        });
+        this.flushing = task;
+        return task;
+    }
+    retry(ids?: Set<string>) {
+        if (!this.running)
+            return;
+        for (const [id, record] of Object.entries(this.state.records))
+            if ((!ids || ids.has(id)) && ['pending', 'failed'].includes(record.state))
+                this.enqueue(id, record);
+    }
+    thread(input: PublicInput, options?: ThreadOptions) { return this.threads.resolve(input.event, options); }
+    stop() { this.running = false; this.subscriptions?.close(); this.subscriptions = undefined; }
+    async idle() {
+        while (this.queues.size)
+            await Promise.all(this.queues.values());
+        await this.flushing?.catch(() => { });
+    }
+}

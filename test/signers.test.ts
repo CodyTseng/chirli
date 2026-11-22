@@ -1,0 +1,97 @@
+import { localIdentity, localNip17Identity } from '../src/protocol.js';
+import { identityFromSigner } from '../src/signers.js';
+import { Client } from './client.js';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { nip44, verifyEvent } from 'nostr-tools';
+import { nsecEncode, npubEncode } from 'nostr-tools/nip19';
+import { bunkerSigner, nsecSigner, generateSecretKey, getPublicKey, SignerError } from '../src/index.js';
+import { BotHandlers as Bot } from '../src/bot-handlers.js';
+import { mockBunker } from './bunker.js';
+async function until(check:()=>boolean){for(let i=0;i<200;i++){if(check())return;await new Promise(resolve=>setTimeout(resolve,10));}assert.fail('condition timeout');}
+
+test('nsec signer validates input, signs, supports NIP-44 and closes without exposing the key',async()=>{
+  const secret=generateSecretKey(),nsec=nsecEncode(secret),signer=nsecSigner(nsec),peer=localNip17Identity();
+  try{
+    assert.equal(await signer.getPublicKey(),getPublicKey(secret));
+    const event=await signer.signEvent({kind:1,created_at:10,tags:[],content:'disposable'});assert.ok(verifyEvent(event));
+    const ciphertext=await signer.nip44Encrypt(peer.pubkey,'test message');
+    assert.equal(nip44.v2.decrypt(ciphertext,nip44.v2.utils.getConversationKey(peer.encryptionKey,event.pubkey)),'test message');
+    assert.equal(JSON.stringify(signer).includes(nsec),false);
+    assert.throws(()=>nsecSigner(npubEncode(peer.pubkey)),/Invalid nsec/);assert.throws(()=>nsecSigner('not a secret'),/Invalid nsec/);
+  }finally{await signer.close();}
+  await assert.rejects(signer.getPublicKey(),error=>error instanceof SignerError&&error.code==='SIGNER_CLOSED');
+});
+
+test('bunker uses one lazy handshake, resolves the user key and rejects URL challenges',async()=>{
+  const remote=await mockBunker();
+  const signer=bunkerSigner(remote.uri,{timeoutMs:1000});
+  try{
+    assert.equal(remote.methods.length,0);
+    const keys=await Promise.all([signer.getPublicKey(),signer.getPublicKey(),signer.getPublicKey()]);
+    assert.ok(keys.every(key=>key===remote.accountPubkey));assert.notEqual(remote.accountPubkey,remote.transportPubkey);
+    assert.equal(remote.methods.filter(method=>method==='connect').length,1);assert.equal(remote.methods.filter(method=>method==='get_public_key').length,1);
+    const template = { kind: 1, created_at: 10, tags: [], content: 'temporary' };
+    remote.auth(true);
+    await assert.rejects(signer.signEvent(template), (error: unknown) =>
+      error instanceof SignerError && error.code === 'SIGNER_FAILED' && !error.message.includes('authorize-disposable-session'));
+    remote.auth(false);
+    assert.ok(verifyEvent(await signer.signEvent(template)));
+    const peer=localNip17Identity(),encrypted=await signer.nip44Encrypt(peer.pubkey,'remote encryption');
+    assert.equal(nip44.v2.decrypt(encrypted,nip44.v2.utils.getConversationKey(peer.encryptionKey,remote.accountPubkey)),'remote encryption');
+    const forRemote=nip44.v2.encrypt('remote decryption',nip44.v2.utils.getConversationKey(peer.encryptionKey,remote.accountPubkey));
+    assert.equal(await signer.nip44Decrypt(peer.pubkey,forRemote),'remote decryption');
+    remote.tamper(true);await assert.rejects(signer.signEvent({kind:1,created_at:10,tags:[],content:'must stay unchanged'}),SignerError);
+    assert.equal(JSON.stringify(signer).includes('disposable-token'),false);
+  }finally{await signer.close();await remote.close();}
+});
+
+for(const mode of ['nip4e','nip17'] as const){
+  test(`${mode}: bunker-backed SDK identity uses the shared Bot and authenticated message lifecycle`,async()=>{
+    const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{timeoutMs:1000});
+    const identity=mode==='nip17'?await identityFromSigner(signer,{mode}):await identityFromSigner(signer,{encryptionKey:generateSecretKey()});
+    const peer=mode==='nip17'?localNip17Identity():localIdentity();
+    const client=new Client({mode,identity,relays:[remote.relay],database:':memory:',storageKey:generateSecretKey()});
+    const user=new Client({mode,identity:peer,relays:[remote.relay],database:':memory:',storageKey:generateSecretKey()});
+    const bot=new Bot(client);bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},async ctx=>{await ctx.reply('bunker pong');});let reply='';user.handle(message=>{reply=message.text;});
+    try{
+      await client.announce();await user.announce();await bot.start();await user.start();
+      await user.send(identity.pubkey,'/ping');await until(()=>reply!=='');await client.idle();await user.idle();assert.equal(reply,'bunker pong');
+      if(mode==='nip17'){
+        assert.equal(identity.encryptionKey,undefined);assert.ok(remote.methods.includes('nip44_decrypt'));assert.ok(remote.methods.includes('nip44_encrypt'));
+        const before=remote.methods.length;
+        const bogus={kind:1059,created_at:10,pubkey:peer.pubkey,tags:[['p',identity.pubkey]],content:'bad',id:'0'.repeat(64),sig:'0'.repeat(128)};
+        assert.equal(await client.receive(bogus,'live'),false);assert.equal(remote.methods.length,before);
+      }else{assert.equal(remote.methods.includes('nip44_decrypt'),false);assert.equal(remote.methods.includes('nip44_encrypt'),false);}
+      await bot.client.close(); bot.dispose();assert.equal(await signer.getPublicKey(),remote.accountPubkey,'Client close does not destroy an externally owned signer');
+    }finally{await user.close();await bot.client.close(); bot.dispose();await signer.close();await remote.close();}
+  });
+}
+
+test('bunker timeouts discard stale connections, reconnect with the client session key and close pending requests',async()=>{
+  const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{timeoutMs:100});
+  try{
+    await signer.getPublicKey();remote.pause('sign_event');
+    await assert.rejects(signer.signEvent({kind:1,created_at:10,tags:[],content:'timeout'}),error=>error instanceof SignerError&&error.code==='SIGNER_TIMEOUT');
+    remote.pause();assert.equal(await signer.getPublicKey(),remote.accountPubkey);assert.equal(remote.methods.filter(method=>method==='connect').length,2);
+    remote.pause('sign_event');const pending=signer.signEvent({kind:1,created_at:10,tags:[],content:'closing'});
+    await until(()=>remote.methods.filter(method=>method==='sign_event').length>=2);await signer.close();
+    await assert.rejects(pending,error=>error instanceof SignerError&&error.code==='SIGNER_CLOSED');
+  }finally{await signer.close();await remote.close();}
+});
+
+test('pure remote decryption failures do not advance recovery checkpoints and can be retried as history',async()=>{
+  const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{timeoutMs:100}),identity=await identityFromSigner(signer,{mode:'nip17'});
+  const client=new Client({mode:'nip17',identity,relays:[remote.relay],database:':memory:',storageKey:generateSecretKey()}),peer=localNip17Identity();
+  const user=new Client({mode:'nip17',identity:peer,relays:[remote.relay],database:':memory:',storageKey:generateSecretKey()});let calls=0;client.handle(()=>{calls++;});client.onError(()=>{});
+  try{
+    await client.announce();await user.announce();await user.send(identity.pubkey,'/old');remote.pause('nip44_decrypt');
+    await client.start();assert.equal(client.store.checkpoint(remote.relay),undefined);
+    remote.pause();const [result]=await client.syncHistory();assert.equal(result.status,'window-complete');assert.equal(calls,0);assert.equal(client.history(peer.pubkey).messages[0].text,'/old');
+  }finally{await client.close();await user.close();await signer.close();await remote.close();}
+});
+
+test('bunkerSigner rejects invalid bunker connection URIs', () => {
+  assert.throws(()=>bunkerSigner('someone@example.test'),/Invalid bunker/);
+  assert.throws(()=>bunkerSigner('bunker://invalid?relay=https://example.test'),/Invalid bunker/);
+});

@@ -1,0 +1,60 @@
+{
+  "provenance": {
+    "path": "src/services/crypto/nip17-gift-wrap.ts",
+    "sha256": "044b2df3aafb8fcc97cba06335d596b59ba6f04c7e2f9c2c6885f7ae14a5304c",
+    "note": "Unchanged extracted PsstPsst envelope functions with equivalent software-key primitives; disposable test keys only."
+  },
+  "sender": {
+    "pubkey": "c44f7a76fdbc57ed079f780f05a2173a339af78d9fb5963322351a23669b9171",
+    "encryptionSecret": "0407a9290a8de0cde3489f426fadf65e7721dea3e01ed9737485559eb588e47c"
+  },
+  "recipient": {
+    "pubkey": "25b1050a69aa9e440972b3771f66924ce912efc7dd000e5843169fbe2f21b4bb",
+    "identitySecret": "6ad4b0fb7e2716cb55225fb7039b7599a48c2f2b688eaef962a7d0e309651832"
+  },
+  "rumor": {
+    "kind": 14,
+    "created_at": 1700000001,
+    "tags": [
+      [
+        "p",
+        "25b1050a69aa9e440972b3771f66924ce912efc7dd000e5843169fbe2f21b4bb"
+      ],
+      [
+        "ms",
+        "321"
+      ]
+    ],
+    "content": "PsstPsst to an identity-key recipient",
+    "pubkey": "c44f7a76fdbc57ed079f780f05a2173a339af78d9fb5963322351a23669b9171",
+    "id": "b67e87ecdb398f1099244ac62c648f58ef5789bb28a5d3c2c99893d47ca74bfc"
+  },
+  "seal": {
+    "kind": 13,
+    "content": "AoHzYOayKeMOiZwelaLh09Qgz96kGR2Y78XSgzw10aOpD/8mau3ScNl2uFBSwhVwEOwFfRzjViC18aqwj7wZ38vgamOAAJ54sQcExAlJ09OjhlVu0U71AxKgL/H9xOYzGEeSrQktpgDgKd+ATrRpMpvRPzU6L8C+h1N4fD6n1qwRH4SfmWI/qivR6ZC0CqBnIRC/asF9x9/Y+4VfWtKTuduz3+INZ2O8QmMfTglgVPmmrskLIh40YQHT8JcPMYFYAr+lI9AJR1x0EzpiCGzt1kp490lGlE/HMavgVoc9SmR08gCpWp9M679LyJPi7JcVHjIOaFDPpT3XA2taNRIORbvklSHhJJUWuWt6EoTOj0YoJjBPwWNcowhL6Pl79mLMvLMVrnJI3Sj45v0afAJOndDWlPbw/n1mdlN4FEexYABbhQWP2iBgYfXY3y3rs1PNhPimrogmoJBBqGmT5Cj6PBkVNEVGqMqB7ZK4iMi9Hr83caxoZj4VtIaTgSbXWDpCnYemJmYuparlPp5RK3Ra0HjPPUi3f+fm+M1tqsuBA1MAkeTdRE5w2dYjPz9gCHLl2daAGGf+n3yYdrnWGXb0X2z67A==",
+    "tags": [
+      [
+        "n",
+        "af5f0c4c46cb517f4c78cc5fa90a8531335410cb214dab18069595292639abae"
+      ]
+    ],
+    "created_at": 1700000001,
+    "pubkey": "c44f7a76fdbc57ed079f780f05a2173a339af78d9fb5963322351a23669b9171",
+    "id": "8b725cb21e646c232c4f49af6a2e73d08f29dce4229c7002dbc54cbb782ed004",
+    "sig": "b635ff69a164884b43b42a106c7dadfd842eeaa5b788f260120f676c67f8e707db17c389979ee24e312b629cb4e4cd60a0204cda4a8abd53db4c629355b10e0e"
+  },
+  "giftWrap": {
+    "kind": 1059,
+    "content": "AouYMaKl9JZ9oIkwBYJySUAzLHjIpYMPG+nbys4+vwJsk5Wy6kA6NzPOLBGXh6/jMVgaQx+dcDIzQG1yfQsMojF5oLdpFMLyaLB7rYOGAg62Xp6+d3/QXvMouMGFitVRSYfmyPXX71sqFzK5Kth367rt59u3LPaZ3jkstNdU2SGB7yXtoTCSDU6/QuEOJAdD4cke4T/MRrNlYKoAwi+ahJFFmNo5QM4koS6IGowXzyLkF221aVeepYjU6iu0mfMzcNjKbixsmB/9SQsTmZq47Dr9XjUWPIIVHrchgfhHNHm5mUQAe2fVTxYiiyN8Tgv7j/YM5XT3us52viap47w1e9+nR3fwh9BvgKMawl8C7fqZJ2tJ6q5ubWwHIRI10goO+BrxWzGqzdNJKjV1OfeLsIxk6JOK0pQSkKCi63ecd5VHsPRE3wbfE+gNATO24WV/s7kJMaCTCsHDEnSmUskllLEn/AAudyrfNEyBQ35eG6cqivUh4vUpCxIKeozWu2uat2fP+tcD0OQqnAyUu1Vjs2+ToTJjQ34p2+tQijKYTk4p9iejO8B7ZIlFNyj882Kjqz4EeLe9/AXIcpDYmrbcP2YQkuN58CG9huwKsxoHbeAPjqLmElu3JbBUg/PniUJ/HdsDzUPzeMtDNhfG1ta76pTErgubFz5z28/FDa20M1Luv/m6ejCdE1TRfW4mOup9s3mmQYTHcDxNvnpL+t/sWk99HGXw39za9AFMtXegRayAAB8gbsX12su36/lBtORKJD26M6FV5U0USa6t4yiUxijlCLP9qc9jjfaJPxBsFU8GcvatYrJnAwg23wmWnH2VunCltKsqARhcD/4mZIHZN8wlYyb3Fq1zDRcQCQzx6oUx9ZM/GGJNQGcRtotJRg3P3NVGRdjfWmukvPnY6Wc40kpy/TQFp47pXoVDNMQtIyLyV9fG2Z3/A3HkviC8RTBCFWoo4Cjrly/KGtFWchiP7/mX+bfNbmoqxn4O5BL78xsfumILBvo9lKVdseJQ9cOqyMrQYdGEuJjQCeATxHA+p6BPEfBFaJ1vwuSSPQn4kw6DVe+ws+qpFFyJ7LlwyHeAFtBqO/gKxEZgC+uWi/RT10x2HZOo0bPy8bwtcdZOrr5/2EN0wSK5hX/iaKdLqhz6YWaO1wxMiqQP0+csIbuV5PIUrRveRF3e9PDuCzwApRTfa8cN7VHzwWYy3+wmKfiETyTBOkY2gbsr9plGZmYez1LRtjl558QUIEpbursj95XjHroKdz0qmwCQ5qEQob78FbKeAFYUkxuAkxpZmKtv6O3kN7gHYSpg4c7XYgzUjWHke5wT3zwjK57WnRM5lhK5/HlVKS/x1frRQf7gAUGPsgQlws2HDUKFoRPeSWNjPxIc2mBRYGQg7Yt2damtC1yI29O4sbuzCS95lhy5URARHQgZH3VpqnXdoX2SMSjup2S5Q4s=",
+    "tags": [
+      [
+        "p",
+        "25b1050a69aa9e440972b3771f66924ce912efc7dd000e5843169fbe2f21b4bb"
+      ]
+    ],
+    "created_at": 1794595688,
+    "pubkey": "bb9840996ca406cf1baff57c3a0417ebc36c6244cb925e6a917e52b2ee710acd",
+    "id": "7ac0208c1c59596994f2f03934eb71bc3ed736f5aaf14de9a99224b7544789f6",
+    "sig": "e0acc889ebf12fff7e89e74c63296378f6babe6f5fea30460a33bdd43fe65c520ccd11f6e63c7b8e5369d60261d00af9063427638a551e13380c6ed95c6b21d7"
+  }
+}

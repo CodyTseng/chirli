@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.sqlite*
+*.db*
+.env*
+.fixture-upstream.ts
+*.tgz
+coverage/
+
+.interop-upstream-*.ts
+
+.chirli/
+
+*.identity.json
+
+# Local project guidance and historical preparation notes.
+/AGENTS.md
+/VALIDATION.md
+/OPEN_SOURCE_CHECKLIST.md

@@ -1,0 +1,78 @@
+{
+  "name": "chirli",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "examples",
+    "docs",
+    "README.md",
+    "ARCHITECTURE.md",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CONTRIBUTING.md"
+  ],
+  "scripts": {
+    "build": "node scripts/clean.mjs && tsc && tsc -p tsconfig.examples.json",
+    "typecheck": "tsc -p tsconfig.check.json",
+    "test": "node --import tsx --test test/*.test.ts",
+    "example": "node --env-file-if-exists=.env.chirli dist/examples/live/commands.js",
+    "example:commands": "node dist/examples/commands.js",
+    "example:history": "node dist/examples/history.js",
+    "example:session": "node dist/examples/session.js",
+    "example:ai-handler": "node dist/examples/ai-handler.js",
+    "examples:smoke": "node --import tsx scripts/smoke-examples.ts",
+    "example:protocol-modes": "node dist/examples/protocol-modes.js",
+    "pack:check": "node scripts/check-package.mjs",
+    "prepack": "npm run build",
+    "check": "npm run build && npm run typecheck && npm test && npm run examples:smoke && npm run pack:check",
+    "example:signers": "node dist/examples/signers.js",
+    "example:nipcd": "node dist/examples/nipcd.js",
+    "example:interop": "node dist/examples/interop.js",
+    "example:rotation": "node dist/examples/rotation.js",
+    "example:storage": "node dist/examples/storage.js",
+    "example:allowlist": "node dist/examples/allowlist.js",
+    "example:local": "node dist/examples/local.js",
+    "bot:init": "node dist/examples/live/setup.js",
+    "bot:commands": "node --env-file-if-exists=.env.chirli dist/examples/live/commands.js",
+    "bot:echo": "node --env-file-if-exists=.env.chirli dist/examples/live/echo.js",
+    "bot:session": "node --env-file-if-exists=.env.chirli dist/examples/live/session.js",
+    "bot:notes": "node --env-file-if-exists=.env.chirli dist/examples/live/notes.js",
+    "example:key-sync": "node dist/examples/key-sync.js",
+    "example:public": "node dist/examples/public.js",
+    "example:async-reply": "node dist/examples/async-reply.js"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.26.0",
+    "qrcode-generator": "^1.5.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "description": "A developer-controlled Nostr bot SDK for private messages and explicitly scoped kind 1/1111 public commands.",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "keywords": [
+    "nostr",
+    "nip17",
+    "nip44",
+    "bot",
+    "typescript"
+  ]
+}

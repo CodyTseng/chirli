@@ -1,0 +1,38 @@
+# All settings are optional for a NEW bot. Leave unused settings commented out.
+# No signer: generate/reuse <database>.identity.json (0600), log public key only.
+# No storage key: PLAINTEXT local storage. Wire DMs remain encrypted.
+# No relay settings: PsstPsst DM defaults and separate read/write discovery defaults.
+# CHIRLI_NSEC=your-existing-bot-nsec
+# CHIRLI_STORAGE_KEY=independent-64-hex-storage-key
+# CHIRLI_RELAYS=wss://your-first-relay.example,wss://your-second-relay.example
+# CHIRLI_DATABASE=.chirli/bot.sqlite
+# CHIRLI_MODE=nip17
+
+# Omitted accepts all authenticated identities; empty denies all incoming users:
+# CHIRLI_ALLOWLIST=identity-public-key-hex,another-identity-public-key-hex
+# CHIRLI_ALLOWLIST=
+
+# Optional separate keys / rotation (migrate an existing account explicitly first):
+# CHIRLI_MODE=nip4e
+# CHIRLI_ROTATION_DAYS=30
+# CHIRLI_LEGACY_KEYS=5
+# CHIRLI_LEGACY_MAX_DAYS=90
+
+# Bunker alternative: do not set CHIRLI_NSEC at the same time.
+# CHIRLI_BUNKER=bunker://your-signer-connection
+# CHIRLI_BUNKER_CLIENT_KEY=optional-persistent-64-hex-client-session-key
+# CHIRLI_OUTBOX_RETRY_MS=30000
+
+# Per-role overrides take precedence over the CHIRLI_RELAYS common shorthand:
+# CHIRLI_DM_RELAYS=wss://inbox-one.example,wss://inbox-two.example
+# CHIRLI_READ_RELAYS=wss://read-one.example,wss://read-two.example
+# CHIRLI_WRITE_RELAYS=wss://write-one.example,wss://write-two.example
+# Commands publish to write; keys and relay lists publish to write + DM.
+
+# Temporary latency diagnosis; no message text, authors, event IDs or credentials:
+# CHIRLI_TIMING=1
+# CHIRLI_RELAY_TIMEOUT_MS=5000
+
+# Same-identity encrypted separated-key transfer (automatic by default):
+# CHIRLI_KEY_SYNC=0
+# CHIRLI_KEY_SYNC_TIMEOUT_MS=30000

@@ -1,0 +1,35 @@
+/** Loopback demo/test fixture, not a production relay. */
+import { WebSocketServer, type WebSocket } from 'ws';
+import { matchFilter, verifyEvent, type Event, type Filter } from 'nostr-tools';
+export async function createLocalRelay() {
+  const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  const events = new Map<string, Event>(), subscriptions = new Map<WebSocket, Map<string, Filter>>();
+  let rejectPublish = false, pauseReads = false, connections = 0;
+  server.on('connection', ws => {
+    connections++;
+    subscriptions.set(ws, new Map()); ws.on('close', () => subscriptions.delete(ws));
+    ws.on('message', raw => {
+      const m = JSON.parse(raw.toString());
+      if (m[0] === 'REQ') {
+        if (pauseReads && m[2].kinds?.includes(1059)) { ws.send(JSON.stringify(['CLOSED', m[1], 'temporarily unavailable'])); return; }
+        subscriptions.get(ws)!.set(m[1], m[2]);
+        for (const e of [...events.values()].filter(event => matchFilter(m[2], event)).sort((a,b) => b.created_at-a.created_at || a.id.localeCompare(b.id)).slice(0,m[2].limit ?? events.size)) ws.send(JSON.stringify(['EVENT', m[1], e]));
+        ws.send(JSON.stringify(['EOSE', m[1]]));
+      }
+      if (m[0] === 'EVENT') {
+        const e = m[1] as Event;
+        if (rejectPublish || !verifyEvent(e)) { ws.send(JSON.stringify(['OK', e.id, false, 'rejected'])); return; }
+        events.set(e.id, e); ws.send(JSON.stringify(['OK', e.id, true, 'stored']));
+        for (const [socket, subs] of subscriptions) for (const [id, f] of subs) if (matchFilter(f, e)) socket.send(JSON.stringify(['EVENT', id, e]));
+      }
+    });
+  });
+  return { url: `ws://127.0.0.1:${(server.address() as any).port}`, events,
+    get connections() { return connections; },
+    disconnect() { for (const ws of server.clients) ws.terminate(); },
+    pauseReads(value: boolean) { pauseReads = value; },
+    reject(value: boolean) { rejectPublish = value; },
+    async close() { for (const ws of server.clients) ws.terminate(); await new Promise<void>(r => server.close(() => r())); }
+  };
+}
