@@ -31,7 +31,7 @@ Pagination includes the oldest returned second in the next request. If a full pa
 
 ### Live messages and recovered history
 
-Frames before EOSE, reconnect catch-up and recovery query results are all historical. They are stored without running handlers. If a historical copy arrives before a live duplicate, both share one receipt and the message stays historical. A command sent during downtime may therefore appear in history without executing.
+Frames before real EOSE normally remain historical, as do all bounded reconnect catch-up and recovery query results. They are stored without running handlers. Long-lived built-in inbox subscriptions alone can complete locally when a relay omits EOSE; after that boundary, only strictly newer authenticated public-event or decrypted rumor timestamps can enter live processing. See the degraded clock/order guarantees in [relays](RELAYS.md#relays-that-omit-eose). If a historical copy arrives before a live duplicate, both share one receipt and the message stays historical. A command sent during downtime may therefore appear in history without executing.
 
 ## Trigger and inspect recovery
 
@@ -52,6 +52,6 @@ Concurrent calls share a relay's active pass. Local `history()` always reports `
 
 ## Startup and retries
 
-Startup waits for at least one inbox replica to reach EOSE and finish its initial recovery attempt. An incomplete recovery can still leave the Bot ready. Reconnected subscriptions retry pending outbox envelopes with their original ciphertext, IDs and targets. The SDK retries on startup and reconnect, and the live runner also has a periodic [retry timer](../examples/live/README.md).
+Startup waits for at least one inbox replica to finish its initial read window (real EOSE or the long-lived inbox fallback) and finish its initial recovery attempt. This initialization gate is separate from physical WebSocket connection health. An incomplete recovery can still leave the Bot ready. Reconnected subscriptions retry pending outbox envelopes with their original ciphertext, IDs and targets. The SDK retries on startup and reconnect, and the live runner also has a periodic [retry timer](../examples/live/README.md).
 
 An established replica's transient network failures get a 30-second recovery window before `onError()` reports one warning for the outage. Initial failures, explicit protocol rejections and history errors are reported immediately. `stop()` and `close()` cancel reconnect demand, delayed warnings and in-progress recovery. See [relays](RELAYS.md) for timeouts and diagnostics.

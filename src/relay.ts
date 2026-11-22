@@ -2,7 +2,8 @@ import { RelayPool, DEFAULT_RELAY_TIMEOUTS, type RelayTimeouts, type RelayLease 
 export { DEFAULT_RELAY_TIMEOUTS, type RelayTimeouts } from './relay-pool.js';
 import { RelayError } from './errors.js';
 import { randomUUID } from 'node:crypto';
-import type { Event, Filter, EventTemplate } from 'nostr-tools';
+import { matchFilter, type Event, type Filter, type EventTemplate } from 'nostr-tools';
+import type { Subscription as NostrSubscription } from 'nostr-tools/abstract-relay';
 
 export interface Subscription {
   close(): void;
@@ -14,6 +15,23 @@ export interface Transport {
   subscribe(relays: string[], filter: Filter, onEvent: (event: Event, source: 'live' | 'history') => void, onDisconnect?: (error: Error) => void): Subscription;
   publish(relays: string[], event: Event): Promise<void>;
   close(): void;
+}
+
+// Internal optional capability: a custom Transport without a socket probe stays unknown.
+const socketProbes=new WeakMap<Transport,(relay:string)=>boolean>();
+export function physicalConnectionState(transport:Transport,relay:string):boolean|undefined {
+  return socketProbes.get(transport)?.(relay);
+}
+
+const localReadBoundaries=new WeakMap<Event,number>();
+/** Verified layers may use this local-window boundary; it is never supplied by event tags. */
+export function localReadBoundary(event:Event):number|undefined {return localReadBoundaries.get(event);}
+
+const inboxSubscribers=new WeakMap<Transport,Transport['subscribe']>();
+/** Only SDK long-lived inbox demand opts into a local initial-read window. */
+export function subscribeInbox(transport:Transport,...args:Parameters<Transport['subscribe']>):Subscription {
+  const subscribe=inboxSubscribers.get(transport);
+  return subscribe?subscribe(...args):transport.subscribe(...args);
 }
 
 /** Opt-in performance metadata only: no event IDs, authors, content or raw URL paths/queries. */
@@ -72,6 +90,8 @@ export class WebSocketTransport implements Transport {
     this.timeouts = Object.freeze(timeouts);
     this.timeoutMs = timeouts.eoseTimeoutMs;
     this.pool = new RelayPool(timeouts, sign);
+    socketProbes.set(this,url=>this.pool.isConnected(url));
+    inboxSubscribers.set(this,(relays,filter,receive,disconnect)=>this.subscribeMode(relays,filter,receive,disconnect,true));
   }
 
   private timing(operation: RelayTiming['operation'], url: string, kinds: number[], start: number, error?: unknown) {
@@ -106,136 +126,93 @@ export class WebSocketTransport implements Transport {
   }
 
   subscribe(relays: string[], filter: Filter, onEvent: (event: Event, source: 'live' | 'history') => void, onDisconnect?: (error: Error) => void): Subscription {
+    return this.subscribeMode(relays,filter,onEvent,onDisconnect,false);
+  }
+
+  private subscribeMode(relays: string[], filter: Filter, onEvent: (event: Event, source: 'live' | 'history') => void, onDisconnect: ((error: Error) => void) | undefined, localReadWindow: boolean, onAttempt?: () => void): Subscription {
     const closers: (() => void)[] = [];
     let stopped = false;
     const ready = Promise.all([...new Set(relays)].map(url => new Promise<void>((resolve, reject) => {
-      const id = randomUUID();
-      let live = false, initialComplete = false, ended = false;
-      let lease: RelayLease | undefined, timer: ReturnType<typeof setTimeout> | undefined, hardTimer: ReturnType<typeof setTimeout> | undefined;
-      let waitingAuth = false;
-      const clearDeadlines = () => {
-        clearTimeout(timer);
-        clearTimeout(hardTimer);
-        hardTimer = undefined;
-        waitingAuth = false;
+      let id = '';
+      let live = false, settled = false, ended = false, rawCount = 0, acceptedCount = 0;
+      let boundary: number | undefined;
+      let lease: RelayLease | undefined, sub: NostrSubscription | undefined;
+      let hardTimer: ReturnType<typeof setTimeout> | undefined, authTimer: ReturnType<typeof setTimeout> | undefined;
+      const error = (code: RelayError['code'], reason?: string) => new RelayError(code === 'RELAY_EOSE_TIMEOUT' ? 'Relay EOSE timeout' : 'Relay subscription failed', { relay: url, operation: code.startsWith('RELAY_AUTH') ? 'auth' : 'subscribe', code, reason });
+      const clear = () => { clearTimeout(hardTimer); clearTimeout(authTimer); hardTimer = undefined; authTimer = undefined; };
+      const retire = () => {
+        if (!sub) return;
+        const prior = sub; sub = undefined;
+        // Public cleanup: close() alone does not clear nostr-tools' EOSE timer.
+        prior.oneose = undefined; prior.receivedEose(); prior.onclose = undefined; if (!prior.closed) prior.close();
       };
-      const finish = () => {
-        clearDeadlines();
-        resolve();
+      const finish = () => { settled = true; clear(); resolve(); };
+      const fail = (failure: Error) => {
+        if (ended || stopped) return;
+        ended = true; clear(); retire(); lease?.release();
+        if (settled) { try { void Promise.resolve(onDisconnect?.(failure)).catch(() => {}); } catch {} }
+        else reject(failure);
       };
-      const release = () => {
-        lease?.send(['CLOSE', id]);
-        lease?.release();
-      };
-      closers.push(() => {
-        ended = true;
-        finish();
-        release();
-      });
-      const fail = (error: Error) => {
-        if (ended || stopped) {
-          return;
-        }
-        ended = true;
-        clearDeadlines();
-        release();
-        if (initialComplete) {
-          try {
-            void Promise.resolve(onDisconnect?.(error)).catch(() => {
-            });
-          }
-          catch {
-          }
-        }
-        else {
-          reject(error);
-        }
-      };
-      const deadline = (auth = false) => {
-        if (!hardTimer) {
-          hardTimer = setTimeout(() => fail(new RelayError('Relay initial read deadline exceeded', {
-            relay: url,
-            operation: 'subscribe',
-            code: 'RELAY_EOSE_TIMEOUT'
-          })), Math.min(2147483647, this.timeouts.eoseTimeoutMs + this.timeouts.authTimeoutMs));
-        }
-        if (auth && waitingAuth) {
-          return;
-        }
-        waitingAuth = auth;
-        clearTimeout(timer);
-        timer = setTimeout(() => fail(new RelayError(auth ? 'Relay authentication timeout' : 'Relay EOSE timeout', {
-          relay: url,
-          operation: auth ? 'auth' : 'subscribe',
-          code: auth ? 'RELAY_AUTH_TIMEOUT' : 'RELAY_EOSE_TIMEOUT'
-        })), auth ? this.timeouts.authTimeoutMs : this.timeouts.eoseTimeoutMs);
+      const waitAuth = () => {
+        if (ended || stopped) return;
+        live = false; boundary = undefined; id = ''; retire();
+        authTimer ??= setTimeout(() => fail(error('RELAY_AUTH_TIMEOUT')), this.timeouts.authTimeoutMs);
       };
       const request = () => {
-        if (ended || stopped) {
-          return;
-        }
-        live = false;
-        if (lease?.authenticating) {
-          deadline(true);
-          return;
-        }
-        deadline();
-        lease?.send(['REQ', id, filter]);
+        if (ended || stopped) return;
+        if (lease?.authenticating) { waitAuth(); return; }
+        clearTimeout(authTimer); authTimer = undefined;
+        live = false; boundary = undefined; rawCount = 0; acceptedCount = 0; retire();
+        id = randomUUID();
+        const attempt = id;
+        onAttempt?.();
+        // This caps repeated AUTH/replay cycles, not the library's EOSE timer.
+        hardTimer ??= setTimeout(() => fail(error('RELAY_EOSE_TIMEOUT')), Math.min(2147483647, this.timeouts.eoseTimeoutMs + this.timeouts.authTimeoutMs));
+        sub = lease!.subscribe(filter, {
+          id, eoseTimeout: this.timeouts.eoseTimeoutMs,
+          onevent: event => {
+            if (ended || stopped || id !== attempt || lease?.authenticating || !matchFilter(filter, event)) return;
+            acceptedCount++;
+            if (!live && boundary !== undefined) localReadBoundaries.set(event, boundary);
+            try { onEvent(event, live ? 'live' : 'history'); } catch { /* Isolate caller callbacks from library diagnostics. */ }
+          },
+          oneose: () => {
+            if (ended || stopped || id !== attempt || lease?.authenticating || authTimer) return;
+            if (live) {
+              // Filtered/invalid wire entries cannot make a capped strict page look complete.
+              if (!localReadWindow && rawCount !== acceptedCount) { fail(error('RELAY_HISTORY_INCOMPLETE')); return; }
+              finish();
+            } else if (localReadWindow) { boundary = Date.now() / 1000; finish(); }
+            else fail(error('RELAY_EOSE_TIMEOUT'));
+          },
+          onclose: reason => {
+            reason = typeof reason === 'string' ? reason : '';
+            if (ended || stopped || id !== attempt) return;
+            // The library has already removed/decremented this subscription.
+            if (sub) { sub.oneose = undefined; sub.receivedEose(); sub = undefined; }
+            if (this.sign && reason.startsWith('auth-required:')) { waitAuth(); return; }
+            fail(error(reason.startsWith('auth-required:') ? 'RELAY_AUTH_REQUIRED' : 'RELAY_SUBSCRIPTION_REJECTED', reason));
+          }
+        });
+        // The library matches filters before validating malformed events. An empty
+        // local filter lets its verifier reject them quietly; the callback applies
+        // the actual filter after verification. The original REQ is already sent.
+        sub.filters = [{}];
       };
+      closers.push(() => { ended = true; clear(); retire(); lease?.release(); resolve(); });
       try {
         lease = this.pool.acquire(url, {
-          failed: fail,
-          authenticating: () => {
-            if (!ended) {
-              live = false;
-              deadline(true);
-            }
-          },
-          authenticated: request,
-          message: msg => {
-            if (ended || stopped || msg[1] !== id) {
-              return;
-            }
-            if (msg[0] === 'EOSE' && !lease?.authenticating && !waitingAuth) {
-              live = true;
-              initialComplete = true;
-              finish();
-            }
-            if (msg[0] === 'EVENT' && msg[2] && typeof msg[2] === 'object') {
-              onEvent(msg[2] as Event, live ? 'live' : 'history');
-            }
-            if (msg[0] === 'CLOSED') {
-              if (this.sign && typeof msg[2] === 'string' && msg[2].startsWith('auth-required:')) {
-                live = false;
-                deadline(true);
-                return;
-              }
-              fail(new RelayError('Relay refused subscription', {
-                relay: url,
-                operation: 'subscribe',
-                code: typeof msg[2] === 'string' && msg[2].startsWith('auth-required:') ? 'RELAY_AUTH_REQUIRED' : 'RELAY_SUBSCRIPTION_REJECTED',
-                reason: typeof msg[2] === 'string' ? msg[2] : undefined
-              }));
-            }
-          },
+          failed: fail, authenticating: waitAuth, authenticated: request,
+          rawEvent: incoming => { if (incoming === id) rawCount++; },
+          wireEose: incoming => {
+            if (incoming !== id || ended || stopped || lease?.authenticating || authTimer) return;
+            live = true; boundary = undefined;
+          }
         });
         void lease.ready.then(request, fail);
-      }
-      catch (error) {
-        fail(error instanceof RelayError ? error : new RelayError('Relay connection failed', {
-          relay: url,
-          operation: 'connect',
-          code: 'RELAY_CONNECTION_FAILED'
-        }));
-      }
-    }))).then(() => {
-    });
-    return {
-      ready, close: () => {
-        stopped = true;
-        closers.forEach(close => close());
-      }
-    };
+      } catch (failure) { fail(failure instanceof RelayError ? failure : error('RELAY_CONNECTION_FAILED')); }
+    }))).then(() => {});
+    return { ready, close: () => { if (stopped) return; stopped = true; closers.forEach(close => close()); } };
   }
 
   private queuedQuery<T>(url: string, task: () => Promise<T>): Promise<T> {
@@ -294,11 +271,11 @@ export class WebSocketTransport implements Transport {
       const events: Event[] = [], start = performance.now();
       let sub: Subscription | undefined;
       try {
-        sub = this.subscribe([relay], filter, (event, source) => {
+        sub = this.subscribeMode([relay], filter, (event, source) => {
           if (source === 'history') {
             events.push(event);
           }
-        });
+        }, undefined, false, () => { events.length = 0; });
         await sub.ready;
         this.timing('query', relay, filter.kinds ?? [], start);
         return events;
@@ -318,99 +295,52 @@ export class WebSocketTransport implements Transport {
       }
       throw new AggregateError(results.map(r => (r as PromiseRejectedResult).reason), 'All discovery relays failed');
     }
-    // Preserve conflicting same-ID bodies for the caller's signature validation; never trust relay IDs here.
+    // Preserve per-relay results; callers still own cross-relay deduplication.
     return successful.flatMap(r => r.value);
   }
 
   async publish(relays: string[], event: Event): Promise<void> {
-    if (!relays.length) {
-      throw new Error('No delivery relays');
-    }
+    if (!relays.length) throw new Error('No delivery relays');
     await Promise.any([...new Set(relays)].map(url => new Promise<void>((resolve, reject) => {
       const start = performance.now();
-      let settled = false, waitingAuth = false, lease: RelayLease | undefined, timer: ReturnType<typeof setTimeout> | undefined, hardTimer: ReturnType<typeof setTimeout> | undefined;
-      const finish = (error?: Error) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timer);
-        clearTimeout(hardTimer);
-        lease?.release();
-        this.timing('publish', url, [event.kind], start, error);
-        error ? reject(error) : resolve();
+      let settled = false, generation = 0, attempted = false, authRetries = 0, lease: RelayLease | undefined;
+      let authTimer: ReturnType<typeof setTimeout> | undefined, hardTimer: ReturnType<typeof setTimeout> | undefined;
+      const error = (code: RelayError['code'], reason?: string) => new RelayError('Relay publication failed', { relay: url, operation: code.startsWith('RELAY_AUTH') ? 'auth' : 'publish', code, reason, eventKind: event.kind });
+      const finish = (failure?: Error) => {
+        if (settled) return;
+        settled = true; clearTimeout(authTimer); clearTimeout(hardTimer); lease?.release();
+        this.timing('publish', url, [event.kind], start, failure);
+        failure ? reject(failure) : resolve();
       };
-      const deadline = (auth = false) => {
-        if (!hardTimer) {
-          hardTimer = setTimeout(() => finish(new RelayError('Relay publication deadline exceeded', {
-            relay: url,
-            operation: 'publish',
-            code: 'RELAY_ACK_TIMEOUT',
-            eventKind: event.kind
-          })), Math.min(2147483647, this.timeouts.publishTimeoutMs + this.timeouts.authTimeoutMs));
-        }
-        if (auth && waitingAuth) {
-          return;
-        }
-        waitingAuth = auth;
-        clearTimeout(timer);
-        timer = setTimeout(() => finish(new RelayError(auth ? 'Relay authentication timeout' : 'Relay ACK timeout', {
-          relay: url,
-          operation: auth ? 'auth' : 'publish',
-          code: auth ? 'RELAY_AUTH_TIMEOUT' : 'RELAY_ACK_TIMEOUT',
-          eventKind: event.kind
-        })), auth ? this.timeouts.authTimeoutMs : this.timeouts.publishTimeoutMs);
+      const waitAuth = () => {
+        if (settled) return;
+        generation++;
+        authTimer ??= setTimeout(() => finish(error('RELAY_AUTH_TIMEOUT')), this.timeouts.authTimeoutMs);
       };
-      const publish = () => {
-        if (settled) {
-          return;
-        }
-        if (lease?.authenticating) {
-          deadline(true);
-          return;
-        }
-        deadline();
-        lease?.send(['EVENT', event]);
+      const publish = (afterAuth = false) => {
+        if (settled) return;
+        hardTimer ??= setTimeout(() => finish(error('RELAY_ACK_TIMEOUT')), Math.min(2147483647, this.timeouts.publishTimeoutMs + this.timeouts.authTimeoutMs));
+        if (lease?.authenticating) { waitAuth(); return; }
+        clearTimeout(authTimer); authTimer = undefined;
+        const replay = afterAuth && attempted;
+        if (replay && authRetries++ >= 1) { finish(error('RELAY_AUTH_REQUIRED')); return; }
+        attempted = true;
+        const attempt = ++generation;
+        void lease!.publish(event, replay).then(() => { if (attempt === generation) finish(); }, failure => {
+          if (settled || attempt !== generation) return;
+          const reason = failure instanceof Error ? failure.message : '';
+          if (this.sign && reason.startsWith('auth-required:')) {
+            if (authRetries >= 1) finish(error('RELAY_AUTH_REQUIRED', reason));
+            else waitAuth();
+            return;
+          }
+          finish(error(reason === 'publish timed out' ? 'RELAY_ACK_TIMEOUT' : reason.startsWith('auth-required:') ? 'RELAY_AUTH_REQUIRED' : 'RELAY_EVENT_REJECTED', reason));
+        });
       };
       try {
-        lease = this.pool.acquire(url, {
-          failed: finish,
-          authenticating: () => {
-            if (!settled) {
-              deadline(true);
-            }
-          },
-          authenticated: publish,
-          message: msg => {
-            if (settled || msg[0] !== 'OK' || msg[1] !== event.id) {
-              return;
-            }
-            if (msg[2] === true) {
-              finish();
-              return;
-            }
-            if (this.sign && typeof msg[3] === 'string' && msg[3].startsWith('auth-required:')) {
-              deadline(true);
-              return;
-            }
-            finish(new RelayError('Relay rejected event', {
-              relay: url,
-              operation: 'publish',
-              code: typeof msg[3] === 'string' && msg[3].startsWith('auth-required:') ? 'RELAY_AUTH_REQUIRED' : 'RELAY_EVENT_REJECTED',
-              eventKind: event.kind,
-              reason: typeof msg[3] === 'string' ? msg[3] : undefined
-            }));
-          },
-        });
-        void lease.ready.then(publish, error => finish(error));
-      }
-      catch (error) {
-        finish(error instanceof RelayError ? error : new RelayError('Relay connection failed', {
-          relay: url,
-          operation: 'connect',
-          code: 'RELAY_CONNECTION_FAILED'
-        }));
-      }
+        lease = this.pool.acquire(url, { failed: finish, authenticating: waitAuth, authenticated: () => publish(true), rawEvent: () => {}, wireEose: () => {} });
+        void lease.ready.then(() => publish(), finish);
+      } catch (failure) { finish(failure instanceof RelayError ? failure : error('RELAY_CONNECTION_FAILED')); }
     })));
   }
 

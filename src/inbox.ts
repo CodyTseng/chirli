@@ -1,6 +1,6 @@
 import { RelayError } from './errors.js';
 import { verifyEvent, type Event, type Filter } from 'nostr-tools';
-import type { Subscription, Transport } from './relay.js';
+import {physicalConnectionState,subscribeInbox,type Subscription,type Transport} from './relay.js';
 import type { Store } from './store.js';
 import { validTimestamp } from './protocol.js';
 
@@ -83,6 +83,7 @@ export class InboxSubscription implements Subscription {
     filter: Filter;
     reconnect?: false | ReconnectOptions;
     recovery?: false | RecoveryOptions;
+    localReadWindow?:boolean;
     receive(event: Event, source: 'live' | 'history', relay: string): void | Promise<void>;
     error(error: unknown): void;
     reconnected(): Promise<void>;
@@ -129,6 +130,11 @@ export class InboxSubscription implements Subscription {
     for (const replica of this.replicas) {
       this.connect(replica);
     }
+  }
+
+  /** An unfailed owned subscription, not physical connection success or historical EOSE. */
+  hasUsableSubscription():boolean {
+    return !this.closed&&this.replicas.some(replica=>replica.attempt?.subscription!==undefined&&physicalConnectionState(this.options.transport,replica.url)!==false);
   }
 
   private current(replica: Replica, attempt: Attempt) {
@@ -196,7 +202,7 @@ export class InboxSubscription implements Subscription {
       }, delay);
     };
     try {
-      const subscription = this.options.transport.subscribe([replica.url], this.options.filter, (event, source) => {
+      const subscription = (this.options.localReadWindow?subscribeInbox.bind(undefined,this.options.transport):this.options.transport.subscribe.bind(this.options.transport))([replica.url], this.options.filter, (event, source) => {
         if (this.current(replica, attempt)) {
           void Promise.resolve(this.options.receive(event, source, replica.url)).catch(error => this.options.error(error));
         }

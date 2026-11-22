@@ -5,7 +5,7 @@ import { InboxSubscription, type ReconnectOptions } from './inbox.js';
 import { relayUnion } from './relay-roles.js';
 import { PublicThreads, publicEvent, threadStructure, referenceKey, commentReply, type PublicThreadOptions, type ThreadOptions } from './public-thread.js';
 import type { Store } from './store.js';
-import type { Transport } from './relay.js';
+import {localReadBoundary,type Transport} from './relay.js';
 export interface PublicInboxOptions {
     relays: readonly string[];
     thread?: PublicThreadOptions;
@@ -79,7 +79,11 @@ export class PublicInbox {
     }
     start(kinds: number[]):Promise<void> {
         const next = [...new Set(kinds)].sort().join(',');
-        if(this.running&&next===this.kinds&&(this.initialReady||this.starting))return this.starting??Promise.resolve();
+        const alreadyInitialized=this.running&&next===this.kinds&&this.initialReady;
+        // initialReady gates inbox initialization only. A failed REQ still needs retry even
+        // on an OPEN socket; an active REQ does not become disconnected while awaiting EOSE.
+        const reusable=this.initialReady&&(this.reconnect!==false||!kinds.length||this.subscriptions?.hasUsableSubscription());
+        if(this.running&&next===this.kinds&&(reusable||this.starting))return this.starting??Promise.resolve();
         this.subscriptions?.close();
         this.subscriptions=undefined;
         this.running=true;
@@ -88,9 +92,22 @@ export class PublicInbox {
         const generation=++this.generation;
         if(!kinds.length){this.initialReady=true;this.starting=undefined;return Promise.resolve();}
         const current=()=>this.running&&this.generation===generation&&this.subscriptions===subscription;
-        const subscription=new InboxSubscription({transport:this.transport,store:this.store,relays:this.relays,filter:{kinds,limit:500},recovery:false,reconnect:this.reconnect,
+        // Replay only pre-existing local unfinished work, once for this activation. New live
+        // failures and replayed relay history must not become automatic recovery retries.
+        const unfinished=Object.entries(this.state.records).filter(([,record])=>['pending','failed'].includes(record.state)&&record.event).map(([id])=>id);
+        let initialized=alreadyInitialized;
+        const initialize=async()=>{
+            if(!current())return;
+            this.initialReady=true;
+            if(!initialized){
+                initialized=true;
+                for(const id of unfinished){const record=this.state.records[id];if(record&&['pending','failed'].includes(record.state)&&record.event)this.enqueue(id,record);}
+            }
+            await this.flush();
+        };
+        const subscription=new InboxSubscription({transport:this.transport,store:this.store,relays:this.relays,filter:{kinds,limit:500},recovery:false,localReadWindow:true,reconnect:this.reconnect,
             receive:async(event,source,relay)=>{this.receive(event,source,relay);},error:this.report,
-            reconnected:async()=>{if(current()){this.initialReady=true;await this.flush();}}});
+            reconnected:initialize});
         this.subscriptions=subscription;
         const task=(async()=>{
             try {await subscription.ready;}
@@ -103,10 +120,7 @@ export class PublicInbox {
                 }
                 throw error;
             }
-            if(!current())return;
-            this.initialReady=true;
-            for(const[id,record]of Object.entries(this.state.records))if(['pending','failed'].includes(record.state)&&record.event)this.enqueue(id,record);
-            await this.flush();
+            await initialize();
         })().finally(()=>{if(this.starting===task)this.starting=undefined;});
         this.starting=task;
         return task;
@@ -114,9 +128,10 @@ export class PublicInbox {
     receive(input: Event, source: 'live' | 'history', relay?: string): boolean {
         if (!this.running || !relay)
             return false;
-        const event = publicEvent(input);
+        const boundary=localReadBoundary(input),event = publicEvent(input);
         if (!event || !this.accepted(event, relay))
             return false;
+        if(source==='history'&&boundary!==undefined&&event.created_at>boundary)source='live';
         if (Object.hasOwn(this.state.records, event.id))
             return false;
         let evicted: [

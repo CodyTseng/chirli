@@ -72,7 +72,7 @@ A remote signer sees NIP-44 plaintext it processes. Operational signer failures 
 
 ## Network and storage limits
 
-One pooled socket per normalized relay URL shares operations and AUTH. Connect/EOSE/ACK/AUTH budgets are separate. Inbox owns durable reconnect demand and bounded overlap paging; the physical pool does not independently reconnect.
+One nostr-tools AbstractRelay per configured relay URL shares operations and AUTH; the Node socket adapter preserves exact paths and queries. Connect/EOSE/ACK/AUTH budgets are separate. Inbox owns durable reconnect demand and bounded overlap paging; the physical pool does not independently reconnect.
 
 Recovered frames remain history. Saturated timestamp boundaries, page limits or failed reads leave coverage incomplete. No full archive or durable undecryptable-envelope quarantine is promised.
 

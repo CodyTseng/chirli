@@ -6,7 +6,7 @@ import { identityFromSigner } from './signers.js';
 import type { Signer } from './signer.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Store, type Message } from './store.js';
-import { WebSocketTransport, type Transport, type WebSocketTransportOptions } from './relay.js';
+import {localReadBoundary, WebSocketTransport, type Transport, type WebSocketTransportOptions } from './relay.js';
 import { hexKey, reactionRumor, replyTarget, rumor, timestamp, unwrapAsync, wrap, type DecodedEnvelope, type Identity, type Rumor } from './protocol.js';
 import { createMessagingProtocol, protocolScope, type MessagingProtocol, type ProtocolMode } from './modes.js';
 import { InboxSubscription, type ReconnectOptions, type RecoveryOptions } from './inbox.js';
@@ -333,6 +333,7 @@ export class Client {
         },
         reconnect: this.options.reconnect,
         recovery: this.options.recovery,
+        localReadWindow:true,
         receive: (event, source, relay) => this.receive(event, source, {
           relay
         }).then(() => {
@@ -366,13 +367,14 @@ export class Client {
   receive(event: Event, source: 'live' | 'history', metadata?: IntakeMetadata): Promise<boolean> {
     this.assertOpen();
     if([1,1111].includes(event.kind))return Promise.resolve().then(()=>this.publicInbox?.receive(event,source,metadata?.relay)??false);
+    const boundary=localReadBoundary(event);
     const snapshot = metadata ? {
       relay: metadata.relay
     } : undefined;
     // Preserve wire intake order even when remote decrypt calls complete at different speeds.
     const task = this.intake.then(async () => {
       const decoded = await unwrapAsync(event, this.account, this.protocol.envelope);
-      return decoded ? this.accept(decoded, source, snapshot) : false;
+      return decoded ? this.accept(decoded,source==='history'&&boundary!==undefined&&decoded.rumor.created_at>boundary?'live':source,snapshot) : false;
     });
     this.intake = task.then(() => {
     }, () => {
