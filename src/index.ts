@@ -1,5 +1,5 @@
 export type { MessageObserver, ErrorHandler, IntakeMetadata, SenderAllowlist, SendOptions, SendResult } from './client.js';
-export { Bot, type Context, type MessageHandler, type Middleware, type Next, type BotCommandOptions, type CommandHandler, type BotOptions, type Session, type SessionStore } from './bot.js';
+export { Bot, type Context, type CommandContext, type MessageHandler, type Middleware, type Next, type BotCommandOptions, type CommandHandler, type BotOptions, type Session, type SessionStore } from './bot.js';
 export { generateSecretKey, getPublicKey, type Rumor } from './protocol.js';
 export { WebSocketTransport, DEFAULT_RELAY_TIMEOUTS, type RelayTimeouts, type WebSocketTransportOptions, type Transport, type Subscription, type RelayTiming, type RelayTimingObserver } from './relay.js';
 export type { Message, HistoryPage, MessageRecord, MessageList, MessageListOptions } from './store.js';
@@ -23,3 +23,5 @@ export { requestTiming, type RequestTiming, type RequestTimingObserver, type Req
 
 export type {Input,ThreadResult,ThreadOptions,PublicThreadOptions} from './public-thread.js';
 export type {PublicInboxOptions} from './public-inbox.js';
+
+export {InvalidArgsError} from './errors.js';

@@ -19,7 +19,7 @@ bot.command({command:'ping',scopes:['kind:14','kind:1','kind:1111']}, async ctx 
 await bot.start();
 ```
 
-The example URLs are placeholders. Public inbox URLs must be chosen explicitly by the operator; no default public firehose opens. A public subscription selects only kinds declared by current commands, with a 500-event initial window per relay. Adding/removing commands automatically updates the public subscriptions after command catalog synchronization. DM subscription, metadata publication and automatic kind 31992 reconciliation retain their existing behavior.
+The example URLs are placeholders. Public inbox URLs must be chosen explicitly by the operator; no default public firehose opens. A public subscription selects only kinds declared by current commands, with a 500-event initial window per relay. Runtime additions update public subscriptions after command catalog synchronization. To remove commands, omit them from the next registry and restart; startup withdraws their definitions. DM subscription, metadata publication and automatic kind 31992 reconciliation retain their existing behavior.
 
 `scopes` is required and must contain at least one supported kind. Duplicate or unsupported kind scopes are rejected. Same-type scopes are alternatives; different scope types combine. Scope checks use the authenticated rumor/public event and actual source relay, never configured-relay membership as proof of provenance. Registration/publication and routing use the same scopes.
 
@@ -65,10 +65,12 @@ Live input is saved before processing, with pending/processing/failed/done state
 
 ## Migration and references
 
-Replace `command('ping', handler)` with `command({command:'ping',scopes:['kind:14']},handler)`. For trailing text declare `args:[{name:'text',type:'text',required:false,label:'Text'}]`. No scope is inserted implicitly. Custom command identifiers remain rejected; `d` remains the command name. Renames are removal plus addition. Foreign protocol definitions still retain their actual `d` values when decoded.
+Replace `command('ping', handler)` with `command({command:'ping',scopes:['kind:14']},handler)`. For trailing text declare `args:z.object({text:z.string().optional().meta({label:'Text',nipcdType:'text'})})`. No scope is inserted implicitly. Custom command identifiers remain rejected; `d` remains the command name. Renames are removal plus addition. Foreign protocol definitions still retain their actual `d` values when decoded.
 
 References: [NIP-22](https://nips.nostr.com/22), [NIP-CD draft](https://github.com/nostr-protocol/nips/blob/master/CD.md), and read-only review of Jumble's MIT-licensed structural/thread/routing patterns. No running Jumble device or public relay interoperability is covered by local tests.
 
 ## Application-owned delayed replies
 
 Use `bot.reply(ctx.input.event,text)` and `bot.thread(ctx.input.event,options)` after the handler finishes; retain the full original signed public event, not its ID. Completed body cleanup does not prevent those calls. Reverification is mandatory; known relay provenance is recovered only from the local journal and is never inferred from tags. Without known provenance, replies use configured write relays. DM calls require the matching authenticated incoming record in the same account/mode store and protect the retained plaintext event. See [the shared API and offline example](API.md#replies-and-context-after-a-handler).
+
+Public admission checks only a registered command head, verified target and scopes before enqueueing. NIP-CD argument decoding and Zod validation happen after middleware. This permits centralized invalid-argument handling without subscribing to arbitrary event handlers. History/replayed IDs still never run validation/error callbacks. An args-dependent authorize callback suppresses malformed-input error callbacks because no valid arguments exist to authorize a response. See [Zod arguments](API.md#zod-command-arguments).

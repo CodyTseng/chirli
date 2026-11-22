@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Bot, generateSecretKey, nsecSigner, type Message } from '../src/index.js';
@@ -17,7 +18,7 @@ for (const mode of ['nip17', 'nip4e'] as const) {
       received.push(ctx.message);
       if (ctx.message.replyTo) parents.push(ctx.getMessage(ctx.message.replyTo));
     });
-    bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => {
+    bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
       await ctx.reply('pong', { replyTo: ctx.message.id });
     });
 

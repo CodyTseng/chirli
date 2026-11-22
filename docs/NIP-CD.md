@@ -7,16 +7,18 @@ Kind **10992** is a user’s installed-command list. Chirli neither publishes it
 ## Register the complete set before starting
 
 ```ts
+import {z} from 'zod';
+
 const bot = new Bot({ signer });
 bot.command({ command: 'ping', scopes: ['kind:14'] }, async ctx => { await ctx.reply('pong'); });
 bot.command({
   command: 'sum', scopes: ['kind:14'],
   title: 'Sum',
   description: 'Add two integers.',
-  args: [
-    { name: 'left', type: 'number', required: true, label: 'Left' },
-    { name: 'right', type: 'number', required: true, label: 'Right' },
-  ],
+  args: z.object({
+    left: z.bigint().meta({label:'Left'}),
+    right: z.bigint().meta({label:'Right'}),
+  }),
 }, async (ctx, { left, right }) => {
   await ctx.reply(String(left + right));
 }, { authorize: ctx => allowedSenders.has(ctx.sender) });
@@ -33,22 +35,21 @@ Before business subscriptions or pending handlers begin, startup:
 2. Compares that snapshot with the complete local registry, keeps unchanged definitions and publishes missing/changed definitions.
 3. Publishes NIP-09 kind 5 coordinate withdrawals for definitions present remotely but absent locally, plus explicit removals and durable pending withdrawals.
 
-No separate executor-list event is published. An empty Bot registry withdraws observed remote definitions; an ordinary Client does not claim registry ownership. Command registration and running additions/removals synchronize automatically; there is no publication opt-in or manual setup step.
+No separate executor-list event is published. An empty Bot registry withdraws observed remote definitions; an ordinary Client does not claim registry ownership. Command registration and running additions synchronize automatically; there is no publication opt-in or manual setup step.
 
 Startup requires successful reads and writes on every configured write relay. A failed or detectably incomplete scan blocks reconciliation. A relay may silently cap or omit results, so a completed bounded scan is not proof of globally complete history. Local confirmed cache entries alone never establish fresh remote presence or cause repeated withdrawals after a relay removes the event. Durable pending definitions/withdrawals are distinct from confirmed cache and retain their exact event IDs on retry.
 
 Relays commonly remove the targeted definition after accepting kind 5. Reconciliation therefore does not fetch remote deletion history. Local tombstones are retained for retries and monotonic re-registration timestamps. Definitions, withdrawals and different relay replicas are not published atomically; partial failure can expose mixed snapshots.
 
-## Runtime addition, removal and explicit synchronization
+## Runtime addition and restart reconciliation
 
 ```ts
 bot.command({ command: 'help', scopes: ['kind:14'] }, async ctx => { await ctx.reply('Available commands…'); });
 // Optional: await the automatic background synchronization before reading a snapshot.
 await bot.syncCommands();
-await bot.removeCommand('help'); // Disable locally and automatically withdraw.
 ```
 
-The published `d` is always the command name in `bot.command()`. Custom `id` arguments, even those matching the command name, are rejected. `removeCommand(name)` takes that command name, disables the handler immediately and waits for automatic withdrawal. A rename is removal of the old command plus registration of a new command at a different coordinate. If publication fails, `flushAnnouncements()` or `syncCommands()` can optionally await/retry the same automatic process.
+The published `d` is always the command name in `bot.command()`. Custom `id` arguments, even those matching the command name, are rejected. To remove a command, omit it from the next complete startup registry and restart with the same account and relays. A rename is removal of the old command plus registration of a new command at a different coordinate. If publication fails, `flushAnnouncements()` or `syncCommands()` can optionally await/retry the same automatic process.
 
 `syncCommands()` returns added, updated and removed identifiers only; it is an optional wait/retry helper. Closing the Bot preserves public definitions and durable pending work for restart.
 
@@ -77,7 +78,7 @@ The qualifier is optional. Both `@npub` and `@nostr:npub` target the executor's 
 - Registration uses one object form with explicit scopes. To accept trailing text, declare an optional terminal `text` argument.
 - A full definition supports positional `pubkey`, `event`, `address`, `relay`, `number`, `bool`, `enum`, `word` and `text` arguments. Numbers are parsed as `bigint`.
 - A terminal `text` argument removes one separator and preserves the rest, including leading spaces and newlines.
-- The first matching command owns the route. An unknown trigger, malformed invocation or scope mismatch can fall through to `handle()`. An authorization denial on the matched command stops routing.
+- The first matching command owns the route. An unknown trigger, unselected target or scope mismatch can fall through to the DM `handle()`. Recognized, correctly targeted/scoped commands with invalid arguments never fall through. An authorization denial on the matched command stops routing.
 
 ## Scope rules
 
@@ -94,6 +95,8 @@ Scopes of the same type are alternatives. Different types must all match. Tag sc
 
 ## Upgrade behavior
 
-Replace `command('name', fn)` with `command({command:'name', scopes:['kind:14']}, fn)`; add an optional text argument schema if needed. Remove custom `id` from Bot registration code and pass command names to `removeCommand`. On the next automatic reconciliation, old custom coordinates found in the relay snapshot are withdrawn and the name-derived coordinates are published. Existing foreign wire definitions remain decodable with their original identifiers.
+Replace `command('name', fn)` with `command({command:'name', scopes:['kind:14']}, fn)`; add an optional text argument schema if needed. Remove custom `id` from Bot registration code. Remove unwanted declarations from the next startup registry. On the next automatic reconciliation, old custom coordinates found in the relay snapshot are withdrawn and the name-derived coordinates are published. Existing foreign wire definitions remain decodable with their original identifiers.
 
 The existing SQLite journal keys/schema are retained. Unsupported legacy executor-list events in command known/pending state and relay-announcement state are filtered out at load and never replayed. Supported pending definitions and kind 5 withdrawals retain their exact signed IDs. No remote legacy list is read, republished or automatically erased. Removed index exports/result fields are no longer part of the API.
+
+Bot args are now a Zod 4 object; labels/types/order/required/enum choices generate the same protocol argument tags. The protocol CommandArgument structure and pure encode/decode/discovery APIs remain unchanged. See [supported schemas and terminal errors](API.md#zod-command-arguments).

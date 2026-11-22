@@ -43,3 +43,5 @@ Terminal QR output uses the MIT-licensed `qrcode-generator` npm dependency by Ka
 ## Jumble structural reference
 
 Public kind 1/1111 root/parent parsing, mixed-thread batching and relay-routing design were informed by read-only review of Jumble (`src/lib/draft-event.ts`, `src/lib/event-core.ts`, `src/services/thread.service.ts`, `src/services/client.service.ts`), MIT License, Copyright (c) 2025 Cody Tseng. Chirli's bounded headless resolver and isolated public journal were implemented locally; no Jumble runtime or dependency is bundled. The project's existing MIT license text is retained. Protocol references are NIP-22 and the NIP-CD draft.
+
+Command argument declaration and validation uses Zod 4 (MIT), through the installed package API. Zod is a runtime dependency, not bundled source. The dependency retains its upstream MIT license. The bounded schema-to-NIP-CD projection uses documented Zod 4 schema definitions/metadata and is original Chirli code; it does not copy a command framework.

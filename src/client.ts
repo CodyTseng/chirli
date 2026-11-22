@@ -786,14 +786,30 @@ export class Client {
     const generation = this.generation;
     const active = () => !this.closed && !this.closing && this.generation === generation;
     const task = (async () => {
+      // Net presence changes across every completed round in this coalesced operation.
+      const changes=new Map<string,{initial:boolean;current:boolean}>();
       for (;;) {
         const revision = this.commandRevision, removals = [...this.revokedCommands];
         const result = await this.commands.sync(this.publicCommandDefinitions(), removals, active);
+        for(const category of ['added','updated','removed'] as const){
+          for(const id of result[category]){
+            const change=changes.get(id)??{initial:category!=='added',current:false};
+            change.current=category!=='removed';changes.set(id,change);
+          }
+        }
         for (const id of removals) if (!this.commandDefinitions.has(id)) this.revokedCommands.delete(id);
         if (this.commandRevision === revision) {
-          this.syncedCommandRevision = revision;
           if(this.running&&this.sub)await this.publicInbox?.start(this.publicKinds());
-          return result;
+          // Registration can change while the new public subscription waits for EOSE.
+          if(!active())throw new Error('Command synchronization canceled');
+          if(this.commandRevision!==revision)continue;
+          this.syncedCommandRevision = revision;
+          const combined:CommandSyncResult={added:[],updated:[],removed:[]};
+          for(const[id,change]of changes){
+            if(change.current)combined[change.initial?'updated':'added'].push(id);
+            else if(change.initial)combined.removed.push(id);
+          }
+          return combined;
         }
       }
     })().finally(() => { if (this.synchronizing === task) this.synchronizing = undefined; });

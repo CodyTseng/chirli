@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { type Bot, type Context } from 'chirli';
 // Attach listeners before start(). The application owns decisions and side effects.
 export function listen(bot: Bot) {
@@ -6,8 +7,8 @@ export function listen(bot: Bot) {
   });
 }
 export function commands(bot: Bot<{count: number}>) {
-  bot.command({command:"start",title:"start",description:"Run /start in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => {await ctx.reply('Hello');});
-  bot.command({command:"count",title:"count",description:"Run /count in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => {
+  bot.command({command:"start",title:"start",description:"Run /start in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {await ctx.reply('Hello');});
+  bot.command({command:"count",title:"count",description:"Run /count in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
     const count = (await ctx.session.getItem('count') ?? 0) + 1;
     ctx.session.setItem('count', count);
     await ctx.reply(String(count));

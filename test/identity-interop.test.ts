@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { localIdentity, localNip17Identity, type Identity } from '../src/protocol.js';
 import { identityFromSigner } from '../src/signers.js';
 import { Client } from './client.js';
@@ -54,7 +55,7 @@ for(const kind of ['local','nsec','bunker'] as const){
   const wire=new WebSocketTransport(5000,t=>identity.sign(t)),events:Event[]=[];
   const transport:Transport={query:wire.query.bind(wire),subscribe:wire.subscribe.bind(wire),close:()=>wire.close(),publish:async(relays,event)=>{events.push(event);await wire.publish(relays,event);}};
   const service=new Client({mode:'nip17',identity,relays:[url],transport,database:':memory:',storageKey:generateSecretKey()}),peer=new Client({mode:'nip4e',identity:peerIdentity,relays:[url],database:':memory:',storageKey:generateSecretKey()});
-  const bot=new Bot(service);let commands=0,response='';bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},async ctx=>{commands++;await ctx.reply('identity-key pong');});peer.handle(message=>{response=message.text;});
+  const bot=new Bot(service);let commands=0,response='';bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},async ctx=>{commands++;await ctx.reply('identity-key pong');});peer.handle(message=>{response=message.text;});
   try{
    await service.announce();await peer.announce();await wire.publish([url],await list(peerIdentity,url));
    const claim=events.find(event=>event.kind===10044)!;assert.ok(claim);assert.equal(claim.pubkey,identity.pubkey);assert.deepEqual(claim.tags,[['n',identity.pubkey]]);assert.ok(verifyEvent(claim));

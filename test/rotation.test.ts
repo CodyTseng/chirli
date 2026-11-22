@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { localIdentity, localNip17Identity, type Identity } from '../src/protocol.js';
 import { identityFromSigner } from '../src/signers.js';
 import { Client } from './client.js';
@@ -34,7 +35,7 @@ for(const mode of ['nip17','nip4e'] as const)for(const signerKind of ['local','n
   const identity=signer?await identityFromSigner(signer):localNip17Identity(),relay=new Relay();
   const client=new Client(options(identity,relay,mode)),standard=localNip17Identity(),split=localIdentity(),wire=relay.transport();
   const failures:unknown[]=[];client.onError(e=>{failures.push(e);});const bot=new Bot(client);let calls=0;
-  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},async ctx=>{calls++;await ctx.reply(`pong ${calls}`);});
+  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},async ctx=>{calls++;await ctx.reply(`pong ${calls}`);});
   try{
    await client.announce();
    for(const peer of [standard,split])await wire.publish(relays,await peer.sign({kind:10050,created_at:10,tags:[['relay',relays[0]]],content:''}));

@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { getEventHash, nip44, verifyEvent, type Event } from 'nostr-tools';
@@ -32,7 +33,7 @@ for (const mode of ['nip17', 'nip4e'] as const) {
     let handled = 0;
     peer.handle(() => { handled++; });
     const sent: Awaited<ReturnType<Bot['react']>>[] = [];
-    bot.command({command:"react",title:"react",description:"Run /react in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => { sent.push(await ctx.react('👍')); });
+    bot.command({command:"react",title:"react",description:"Run /react in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { sent.push(await ctx.react('👍')); });
     const decrypt = (content: string, pubkey: string) =>
       nip44.v2.decrypt(content, nip44.v2.utils.getConversationKey(identity.encryptionKey, pubkey));
     const unwrap = (event: Event): Rumor => {

@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import assert from 'node:assert/strict';
 import { createDemo } from './_support.js';
 
@@ -5,7 +6,7 @@ type State = { name: string; visits: number };
 const demo = createDemo<State>();
 const bot = demo.service;
 
-bot.command({command:"start",title:"start",description:"Run /start in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => {
+bot.command({command:"start",title:"start",description:"Run /start in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
   ctx.session.clear();
   await ctx.reply('What is your name?');
 });

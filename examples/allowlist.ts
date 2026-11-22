@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import assert from 'node:assert/strict';
 import { Bot, allowlist, requestTiming, type RequestTiming, generateSecretKey, nsecSigner, type SenderAllowlist } from 'chirli';
 import { MemoryRelay } from './_support.js';
@@ -19,7 +20,7 @@ const timings:Readonly<RequestTiming>[]=[];
 service.use(requestTiming({onTiming:metric=>{timings.push(metric);}}));
 service.use(async (_ctx, next) => { listeners++; await next(); });
 const bot=service;
-bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => {
+bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
   commands++;
   const visits = (await ctx.session.getItem('visits') ?? 0) + 1;
   ctx.session.setItem('visits', visits);

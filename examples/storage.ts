@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -21,7 +22,7 @@ function openService() {
     messageStorage: new JsonMessageStorage(historyPath),
     transport: relay.transport(),
   });
-  bot.command({command:"visit",title:"visit",description:"Run /visit in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => {
+  bot.command({command:"visit",title:"visit",description:"Run /visit in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
     const visits = (await ctx.session.getItem('visits') ?? 0) + 1;
     ctx.session.setItem('visits', visits);
     await ctx.reply(`visit ${visits}`);

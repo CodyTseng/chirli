@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { localIdentity, localNip17Identity } from '../src/protocol.js';
 import { identityFromSigner } from '../src/signers.js';
 import { Client } from './client.js';
@@ -31,7 +32,7 @@ for(const option of ['legacy','policy'] as const)for(const mode of ['nip17','nip
     },
   });
   let commands=0,listeners=0,middleware=0,sessionReads=0,errors=0;
-  client.handle(()=>{listeners++;});client.onError(()=>{errors++;});bot.use(async(_ctx,next)=>{middleware++;await next();});bot.command({command:"run",title:"run",description:"Run /run in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},async ctx=>{commands++;ctx.session.setItem('count',(await ctx.session.getItem('count') ?? 0)+1);});
+  client.handle(()=>{listeners++;});client.onError(()=>{errors++;});bot.use(async(_ctx,next)=>{middleware++;await next();});bot.command({command:"run",title:"run",description:"Run /run in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},async ctx=>{commands++;ctx.session.setItem('count',(await ctx.session.getItem('count') ?? 0)+1);});
   const policy=protocol==='standard'?standardEnvelope:splitEnvelope;
   const recipient=protocol==='standard'?identity.pubkey:client.encryptionKeys().currentPublicKey;
   try{
@@ -95,7 +96,7 @@ for(const [name,Adapter] of [['SQLite',sqliteMessageStorage],['custom',(path: st
   const denied=await wrap(rumor(sender.pubkey,identity.pubkey,'/run denied at intake'),sender,identity.pubkey,identity.pubkey,standardEnvelope);
   try{
    client.handle(()=>{attempts++;throw new Error('unfinished work');});await client.start();await client.receive(accepted,'live');await client.idle();assert.equal(client.store.pending().length,1);await client.close();if ('close' in storage) storage.close();storage=Adapter(path);
-   client=new Client({...options,messageStorage:storage,inboundPolicy:allowlist([])});const bot=new Bot(client,{sessionStore:{get(){sessionReads++;return undefined;},set(){}}});bot.command({command:"run",title:"run",description:"Run /run in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},async ctx=>{await ctx.session.getItem('count');attempts++;});client.handle(()=>{attempts++;});await client.start();await client.retryInbox();
+   client=new Client({...options,messageStorage:storage,inboundPolicy:allowlist([])});const bot=new Bot(client,{sessionStore:{get(){sessionReads++;return undefined;},set(){}}});bot.command({command:"run",title:"run",description:"Run /run in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},async ctx=>{await ctx.session.getItem('count');attempts++;});client.handle(()=>{attempts++;});await client.start();await client.retryInbox();
    assert.equal(attempts,1);assert.equal(sessionReads,0);assert.equal(client.store.pending().length,0);assert.equal(client.history(sender.pubkey).messages.length,1,'previously accepted encrypted history remains readable');
    assert.equal(await client.receive(denied,'live'),false);assert.equal(await client.receive(denied,'history'),false);await bot.client.close(); bot.dispose();if ('close' in storage) storage.close();storage=Adapter(path);
    client=new Client({...options,messageStorage:storage,inboundPolicy:allowlist([sender.pubkey])});client.handle(()=>{attempts++;});await client.start();assert.equal(attempts,1,'revoked pending work stays consumed even if allowed later');

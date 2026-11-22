@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { allowlist, requestTiming, Bot, type BotOptions, type BotCommandDefinition, type CommandAddress, type CommandValue, type Signer, type MessageStorage, type Transport } from '../src/index.js';
 import { Client } from '../src/client.js';
 
@@ -57,7 +58,7 @@ function commandHandlers(bot: Bot, dynamic: BotCommandDefinition) {
   // @ts-expect-error The old shorthand cannot declare routing scope.
   bot.command('implicit',()=>{});
   bot.command({command:'public',scopes:['kind:1','kind:1111']},async ctx=>{const inputId:string=ctx.input.id;const prior=await ctx.thread({limit:10});await ctx.reply(String(prior.entries.length));void inputId;});
-  bot.command({command:"echo",title:"echo",description:"Run /echo in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async (ctx, { text }) => {
+  bot.command({command:"echo",title:"echo",description:"Run /echo in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async (ctx, { text }) => {
     // @ts-expect-error A simple command may omit text.
     const requiredText: string = text;
     await ctx.reply(text ?? '');
@@ -67,16 +68,12 @@ function commandHandlers(bot: Bot, dynamic: BotCommandDefinition) {
     command: 'configure',scopes:['kind:14'],
     title: 'Configure',
     description: 'Configure a target.',
-    args: [
-      { name: 'count', type: 'number', required: true, label: 'Count' },
-      { name: 'enabled', type: 'bool', required: true, label: 'Enabled' },
-      { name: 'target', type: 'address', required: true, label: 'Target' },
-      { name: 'mode', type: 'enum', required: false, label: 'Mode', choices: ['fast', 'safe'] },
-    ],
+    args: z.object({"count":z.bigint().meta({label:'Count'}),"enabled":z.boolean().meta({label:'Enabled'}),"target":z.object({kind:z.number().int(),pubkey:z.string(),identifier:z.string(),relays:z.array(z.string())}).meta({label:'Target',nipcdType:'address'}),"mode":z.enum(['fast', 'safe']).optional().meta({label:'Mode'})}),
   } as const satisfies BotCommandDefinition;
 
   bot.command(definition, (_ctx, args) => {
     const count: bigint = args.count;
+    const contextCount:bigint=_ctx.args.count;void contextCount;
     const enabled: boolean = args.enabled;
     const target: CommandAddress = args.target;
     const mode: 'fast' | 'safe' | undefined = args.mode;
@@ -92,7 +89,7 @@ function commandHandlers(bot: Bot, dynamic: BotCommandDefinition) {
   });
 
   bot.command(dynamic, (_ctx, args) => {
-    const value: CommandValue | undefined = args.anyName;
+    const value: unknown = args.anyName;
     return value;
   });
 
@@ -104,6 +101,11 @@ function commandHandlers(bot: Bot, dynamic: BotCommandDefinition) {
 void commandHandlers;
 
 function conversationState(bot: Bot<{ visits: number; name: string }>) {
+  bot.use(async(ctx,next)=>{
+    // @ts-expect-error Middleware runs before validation and has no valid args.
+    void ctx.args;
+    await next();
+  });
   bot.handle(async ({ session }) => {
     const visits = await session.getItem('visits');
     session.setItem('visits', (visits ?? 0) + 1);
@@ -120,8 +122,10 @@ void conversationState;
 
 // Bot registration cannot accept legacy custom identifiers; wire helpers retain foreign d values.
 function commandNamesOnly(bot: Bot) {
+  // @ts-expect-error Commands are omitted from the next startup registry, not removed at runtime.
+  bot.removeCommand('ping');
   // @ts-expect-error The string-form metadata options no longer include id.
-  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, () => {}, { id: 'legacy' });
+  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, () => {}, { id: 'legacy' });
   // @ts-expect-error Object-form command identifiers come from the command name.
   bot.command({scopes:['kind:14'],  command: 'ping', title: 'Ping', description: 'Ping', id: 'legacy' }, () => {});
 }

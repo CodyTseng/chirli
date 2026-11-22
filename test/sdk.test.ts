@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { localIdentity } from '../src/protocol.js';
 import { Client } from './client.js';
 import { test } from 'node:test';
@@ -24,7 +25,7 @@ test('WebSocket E2E: discovery, self copy, command consumption, history, rumor d
     await alice.send(b.pubkey, '/ping old');
     const bot = new Bot<{count:number}>(bob);
     let commands=0, texts=0;
-    bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => { commands++; ctx.session.setItem('count', (await ctx.session.getItem('count') ?? 0) + 1); await ctx.reply('pong'); });
+    bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { commands++; ctx.session.setItem('count', (await ctx.session.getItem('count') ?? 0) + 1); await ctx.reply('pong'); });
     bot.handle(async () => { texts++; });
     await alice.start(); await bot.start(); await bob.idle();
     assert.equal(commands,0);
@@ -89,7 +90,7 @@ test('failed inbox retry and persistent outbox reuse the same message identities
 test('exclusive routing and per-conversation concurrency',async()=>{
   const relay=await testRelay(), b=localIdentity(), a=localIdentity(), c=localIdentity();
   const client=new Client({mode:'nip4e',identity:b,relays:[relay.url],database:':memory:',storageKey:generateSecretKey()});const bot=new Bot(client);const seen:string[]=[];let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});
-  bot.command({command:"go",title:"go",description:"Run /go in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, () => { seen.push('command'); });
+  bot.command({command:"go",title:"go",description:"Run /go in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, () => { seen.push('command'); });
   bot.handle(async ctx=>{seen.push(ctx.message.text);if(ctx.message.text==='first')await gate;});
   try {
     await bot.start();

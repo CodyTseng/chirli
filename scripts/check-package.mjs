@@ -35,12 +35,13 @@ try {
   await rename(join(scratch, 'package'), packed);
   assert.deepEqual(await readFile(join(packed, 'LICENSE')), await readFile(join(root, 'LICENSE')));
   // Use the already installed, locked dependencies. No registry access or pretend clean install.
-  for (const dependency of ['nostr-tools', 'ws', 'qrcode-generator', '@types']) {
+  for (const dependency of ['zod','nostr-tools', 'ws', 'qrcode-generator', '@types']) {
     await symlink(join(root, 'node_modules', dependency), join(modules, dependency), 'dir');
   }
   await writeFile(join(consumer, 'package.json'), JSON.stringify({ type: 'module', private: true }));
   await writeFile(join(consumer, 'consumer.mjs'), `
 import assert from 'node:assert/strict';
+import {z} from 'zod';
 import { allowlist as inboundAllowlist, requestTiming, Bot, nsecSigner, bunkerSigner, generateSecretKey } from 'chirli';
 import * as chirli from 'chirli';
 assert.equal('Client' in chirli, false);
@@ -52,7 +53,7 @@ for (const mode of ['nip4e', 'nip17']) {
   const signer = nsecSigner(generateSecretKey());
   const bot = new Bot({mode, signer, inboundPolicy:inboundAllowlist([]), database:':memory:', transport:wire, relays:['ws://unused.invalid']});
   bot.use(requestTiming({onTiming:()=>{}}));
-  bot.command({command:'ping',scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => { await ctx.reply('pong'); });
+  bot.command({command:'ping',scopes:['kind:14'],args:z.object({text:z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { await ctx.reply('pong'); });
   await bot.start();
   assert.equal(bot.mode,mode);
   assert.equal(bot.pubkey.length,64);
@@ -65,6 +66,7 @@ await assert.rejects(import('chirli/src/client.js'), {code:'ERR_PACKAGE_PATH_NOT
 `);
   run(process.execPath, ['consumer.mjs'], consumer);
   await writeFile(join(consumer, 'consumer.ts'), `
+import {z} from 'zod';
 import { allowlist as inboundAllowlist, requestTiming, Bot, nsecSigner, generateSecretKey, type Context, type ProtocolMode, type Transport, type HistoryPage, type HistorySyncResult, type Signer, type BotCommandDefinition, type KeyRotationOptions, type EncryptionKeyStatus, sqliteMessageStorage, type MessageStorage, type SenderAllowlist, DEFAULT_DM_RELAYS, RelayError, type RelayErrorCode, type MetadataCacheOptions, type KeySyncOptions } from 'chirli';
 const metadataCache:MetadataCacheOptions={ttlMs:600000,negativeTtlMs:30000,maxStaleMs:86400000,maxEntries:512};
 const keySync:KeySyncOptions={timeoutMs:30000};
@@ -77,7 +79,7 @@ const allowlist:SenderAllowlist=[];
 const bot = new Bot<{count:number}>({mode, allowlist, signer:nsecSigner(generateSecretKey()), database:':memory:', storageKey:generateSecretKey(), relays:['ws://unused.invalid']});
 bot.use(requestTiming({onTiming:metric=>{const outcome:'success'|'failure'=metric.outcome;void outcome;}}));
 const policy=inboundAllowlist([]);
-bot.command({command:'ping',scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async (ctx, { text }) => {const count = await ctx.session.getItem('count') ?? 0; ctx.session.setItem('count', count + (text?.length ?? 1));const page:HistoryPage=ctx.history({limit:2});await ctx.reply(String(page.messages.length));});
+bot.command({command:'ping',scopes:['kind:14'],args:z.object({text:z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async (ctx, { text }) => {const count = await ctx.session.getItem('count') ?? 0; ctx.session.setItem('count', count + (text?.length ?? 1));const page:HistoryPage=ctx.history({limit:2});await ctx.reply(String(page.messages.length));});
 const page: HistoryPage = bot.history(bot.pubkey);
 const rotation:KeyRotationOptions={intervalMs:86400000,retainLegacyKeys:5};
 const keyStatus:EncryptionKeyStatus=bot.encryptionKeys();
@@ -85,7 +87,7 @@ const messageStorage:MessageStorage={insert(){return true;},query(){return [];},
 const custom=new Bot({signer:nsecSigner(generateSecretKey()),database:':memory:',messageStorage});await custom.close();
 const sqliteMessages=sqliteMessageStorage(':memory:');
 const sqliteClient=new Bot({signer:nsecSigner(generateSecretKey()),database:':memory:',messageStorage:sqliteMessages});await sqliteClient.close();sqliteMessages.close();
-const definition={command:'typed',scopes:['kind:14'],title:'Typed',description:'Type consumer only',args:[{name:'n',type:'number',required:true,label:'N'}]} as const satisfies BotCommandDefinition;
+const definition={command:'typed',scopes:['kind:14'],title:'Typed',description:'Type consumer only',args:z.object({n:z.bigint().meta({label:'N'})})} as const satisfies BotCommandDefinition;
 bot.command(definition, async (ctx, { n }) => { await ctx.reply(String(n + 1n)); });
 const recover: () => Promise<HistorySyncResult[]> = () => bot.syncHistory();
 `);

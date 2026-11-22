@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { localNip17Identity } from '../src/protocol.js';
 import { Client } from './client.js';
 import { test } from 'node:test';
@@ -13,7 +14,7 @@ for(const mode of ['nip17','nip4e'] as const){
  test(`${mode}: two relay declarations, routing, duplicate delivery and partial/all ACK failures`,async()=>{
   const first=await testRelay(),second=await testRelay(),relays=[first.url,second.url],identity=localNip17Identity(),peerIdentity=localNip17Identity();
   const service=new Client({mode,identity,relays,transport:new WebSocketTransport(500,t=>identity.sign(t)),database:':memory:',storageKey:generateSecretKey()}),peer=new Client({identity:peerIdentity,relays,transport:new WebSocketTransport(500,t=>peerIdentity.sign(t)),database:':memory:',storageKey:generateSecretKey()});
-  const bot=new Bot(service);let commands=0,replies=0;bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},async ctx=>{commands++;await ctx.reply('pong');});peer.handle(()=>{replies++;});
+  const bot=new Bot(service);let commands=0,replies=0;bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},async ctx=>{commands++;await ctx.reply('pong');});peer.handle(()=>{replies++;});
   try{
    await service.announce();await peer.announce();
    await until(()=>[first,second].every(relay=>[...relay.events.values()].some(e=>e.kind===10050&&e.pubkey===identity.pubkey)));

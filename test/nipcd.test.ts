@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { localIdentity, localNip17Identity } from '../src/protocol.js';
 import { Client } from './client.js';
 import { test } from 'node:test';
@@ -93,23 +94,23 @@ for(const mode of ['nip4e','nip17'] as const){
  test(`${mode}: public declarations synchronize before execution with verified DM scope/context`,async()=>{
   const relay=await testRelay(),make=mode==='nip17'?localNip17Identity:localIdentity,a=make(),b=make(),c=make();
   const create=(identity:typeof a)=>new Client({mode,identity,relays:[relay.url],database:':memory:',storageKey:generateSecretKey()});
-  const user=create(a),service=create(b),stranger=create(c),bot=new Bot(service),replies:string[]=[];let commands=0,fallback=0,denied=0;
+  const user=create(a),service=create(b),stranger=create(c),replies:string[]=[];let bot=new Bot(service);let commands=0,fallback=0,denied=0;
   const definition:CommandDefinition={...base,args:[{name:'count',type:'number',required:true,label:'Count'},{name:'body',type:'text',required:false,label:'Body'}],scopes:['kind:14',`relay:${relay.url}`]} as const satisfies CommandDefinition;
-  bot.command({...(({id,...local})=>local)(definition),scopes:definition.scopes!},async (ctx, { count, body })=>{commands++;assert.equal(ctx.message.sender,a.pubkey);assert.equal(ctx.message.rumor.kind,14);assert.equal(ctx.message.relay,relay.url);await ctx.reply(`${count}: ${body}`);},{authorize:ctx=>{if(ctx.sender!==a.pubkey){denied++;return false;}return true;}});
-  bot.command({scopes:['kind:14'], ...(({id,...local})=>local)(base),command:'private',description:'Never automatically publish this private command.'},()=>{},{});
-  bot.command({command:"legacy",title:"legacy",description:"Run /legacy in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},async ctx=>{await ctx.reply('legacy works');},{});bot.handle(()=>{fallback++;});user.handle(message=>{replies.push(message.text);});
+  bot.command({...(({id,...local})=>local)(definition),scopes:definition.scopes!,args:z.object({count:z.bigint().meta({label:'Count'}),body:z.string().optional().meta({label:'Body',nipcdType:'text'})})},async (ctx, { count, body })=>{commands++;assert.equal(ctx.message.sender,a.pubkey);assert.equal(ctx.message.rumor.kind,14);assert.equal(ctx.message.relay,relay.url);await ctx.reply(`${count}: ${body}`);},{authorize:ctx=>{if(ctx.sender!==a.pubkey){denied++;return false;}return true;}});
+  bot.command({scopes:['kind:14'], ...(({id,...local})=>local)(base),args:z.object({text:z.string().optional().meta({label:'Text',nipcdType:'text'})}),command:'private',description:'Never automatically publish this private command.'},()=>{},{});
+  bot.command({command:"legacy",title:"legacy",description:"Run /legacy in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},async ctx=>{await ctx.reply('legacy works');},{});bot.handle(()=>{fallback++;});user.handle(message=>{replies.push(message.text);});
   try{
    const copy=bot.getCommandDefinitions();copy[0].command='mutated';assert.equal(bot.getCommandDefinitions()[0].command,'echo');
    await user.announce();await service.announce();await stranger.announce();await user.send(b.pubkey,'/echo 1 old');await bot.start();await user.start();
    assert.equal(commands,0);assert.equal([...relay.events.values()].some(event=>event.kind===31992),true);
    await user.send(b.pubkey,'/echo 2 hello\n  world');await until(()=>replies.length===1);assert.equal(replies[0],'2: hello\n  world');
    await stranger.send(b.pubkey,'/echo 3 denied');await until(()=>denied===1);await service.idle();assert.equal(commands,1);assert.equal(fallback,0);
-   await user.send(b.pubkey,'/echo invalid ordinary');await until(()=>fallback===1);
+   await user.send(b.pubkey,'/echo invalid ordinary');await service.idle();assert.equal(fallback,0);
    await user.send(b.pubkey,'/legacy');await until(()=>replies.length===2);assert.equal(replies[1],'legacy works');
    const discovery=await user.discoverCommands({authors:[b.pubkey],relays:[relay.url]});assert.equal(discovery.commands.length,3);const published=discovery.commands.find(command=>command.definition.id===base.command)!.event;assert.ok(verifyEvent(published));assert.equal(published.pubkey,b.pubkey);assert.equal(await service.receive(published,'live'),false);assert.equal(discovery.complete,false);assert.equal(discovery.coverage,'relay-snapshot');
-   await bot.removeCommand(base.command);bot.command({scopes:['kind:14'], ...(({id,...local})=>local)(definition),title:'Updated'},()=>{});await service.syncCommands();assert.equal((await user.discoverCommands({authors:[b.pubkey],ids:[base.command],relays:[relay.url]})).commands[0].definition.title,'Updated');
+   await service.stop();bot.dispose();bot=new Bot(service);bot.command({scopes:['kind:14'], ...(({id,...local})=>local)(definition),args:z.object({count:z.bigint().meta({label:'Count'}),body:z.string().optional().meta({label:'Body',nipcdType:'text'})}),title:'Updated'},()=>{});await bot.start();assert.equal((await user.discoverCommands({authors:[b.pubkey],ids:[base.command],relays:[relay.url]})).commands[0].definition.title,'Updated');
    await service.revokeCommand(base.command);assert.equal((await user.discoverCommands({authors:[b.pubkey],ids:[base.command],relays:[relay.url]})).commands.length,0);
-   assert.equal(bot.getCommandDefinitions().length,2);assert.equal([...relay.events.values()].some(event=>event.kind===10992),false);
+   assert.equal(bot.getCommandDefinitions().length,0);assert.equal([...relay.events.values()].some(event=>event.kind===10992),false);
   }finally{await user.close();await stranger.close();await bot.client.close(); bot.dispose();await relay.close();}
  });
 }
@@ -139,7 +140,7 @@ test('a configured DM relay is not proof of invocation provenance; duplicate int
  const transport:Transport={query:async()=>[],publish:async()=>{},close(){},subscribe:()=>({ready:Promise.resolve(),close(){}})};
  const client=new Client({mode:'nip4e',identity:receiver,relays:[url],transport,database:':memory:',storageKey:generateSecretKey(),recovery:false});
  const bot=new Bot(client);let commands=0,fallback=0;
- bot.command({...(({id,...local})=>local)(base),scopes:['kind:14',`relay:${url}`]},()=>{commands++;});bot.handle(()=>{fallback++;});
+ bot.command({...(({id,...local})=>local)(base),scopes:['kind:14',`relay:${url}`],args:z.object({text:z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{commands++;});bot.handle(()=>{fallback++;});
  const {rumor,wrap}=await import('../src/protocol.js');const {getPublicKey}=await import('../src/index.js');
  try{
   await bot.start();const r=rumor(sender.pubkey,receiver.pubkey,'/echo');

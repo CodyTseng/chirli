@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,7 +13,7 @@ import { SQLiteStorage } from '../src/storage-sqlite.js';
 import { rumor, wrap, standardEnvelope } from '../src/protocol.js';
 
 const dm = 'ws://dm.invalid', read = 'ws://read.invalid', writes = ['ws://write-one.invalid', 'ws://write-two.invalid'];
-const definition = (name: string, title = name): BotCommandDefinition & {title:string;description:string} => ({command:name, title, description:`Run ${name}`, scopes:['kind:14']});
+const definition = (name: string, title = name): Omit<BotCommandDefinition,'args'> & {args?:never;title:string;description:string} => ({command:name, title, description:`Run ${name}`, scopes:['kind:14']});
 const wireDefinition = (id: string, title = id): CommandDefinition => ({...definition(id,title),id});
 const settle = async () => { for (let i=0;i<50;i++) await Promise.resolve(); };
 
@@ -108,20 +109,18 @@ test('ordinary Client preserves user-installed lists; an empty Bot withdraws its
   }finally{await f.client.close();}
 });
 
-test('runtime removal disables execution immediately and re-adding cannot resurrect an old handler',async()=>{
-  const f=fixture(),bot=new Bot(f.client),peer=createIdentity();let oldCalls=0,newCalls=0;
-  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{oldCalls++;});
-  const send=async()=>{
-    await f.client.receive(await wrap(rumor(peer.pubkey,f.client.pubkey,'/ping'),peer,f.client.pubkey,f.client.pubkey,standardEnvelope),'live');
-    await f.client.idle();
-  };
+test('restarting with a reduced registry withdraws commands and re-adding never resurrects old handlers',async()=>{
+  const f=fixture(),peer=createIdentity();let bot=new Bot(f.client),oldCalls=0,newCalls=0;
+  bot.command(definition('ping'),()=>{oldCalls++;});
+  const send=async()=>{await f.client.receive(await wrap(rumor(peer.pubkey,f.client.pubkey,'/ping'),peer,f.client.pubkey,f.client.pubkey,standardEnvelope),'live');await f.client.idle();};
+  const restart=async(register:(next:Bot)=>void)=>{await f.client.stop();bot.dispose();bot=new Bot(f.client);register(bot);await bot.start();};
   try{
     await bot.start();await send();assert.equal(oldCalls,1);
-    await bot.removeCommand('ping');assert.deepEqual(selectCommandDefinitions(f.network.all(),[f.identity.pubkey]).commands,[]);
+    await restart(()=>{});assert.deepEqual(selectCommandDefinitions(f.network.all(),[f.identity.pubkey]).commands,[]);
     await send();assert.equal(oldCalls,1);
-    bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{newCalls++;});await f.client.syncCommands();await send();assert.equal(oldCalls,1);assert.equal(newCalls,1);
-    await f.client.revokeCommand('ping');bot.dispose();
-    const replacement=new Bot(f.client);replacement.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{newCalls++;});await f.client.syncCommands();await send();assert.equal(newCalls,2);replacement.dispose();
+    await restart(next=>{next.command(definition('ping'),()=>{newCalls++;});});await send();assert.equal(oldCalls,1);assert.equal(newCalls,1);
+    bot.command(definition('runtime-added'),()=>{});await f.client.syncCommands();assert.deepEqual(selectCommandDefinitions(f.network.all(),[f.identity.pubkey]).commands.map(item=>item.definition.command).sort(),['ping','runtime-added']);
+    await f.client.revokeCommand('ping');assert.deepEqual(bot.getCommandDefinitions().map(item=>item.command),['runtime-added']);
   }finally{bot.dispose();await f.client.close();}
 });
 
@@ -164,7 +163,7 @@ test('re-registering a locally withdrawn coordinate produces a definition newer 
 test('write destinations and visibility cannot be overridden by per-command options',async()=>{
   const f=fixture(),bot=new Bot(f.client);
   try{
-    assert.throws(()=>bot.command({command:"secret",title:"secret",description:"Run /secret in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{},{publish:false} as never),/always public/);
+    assert.throws(()=>bot.command({command:"secret",title:"secret",description:"Run /secret in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{},{publish:false} as never),/always public/);
     // @ts-expect-error Exercise JavaScript callers attempting removed options.
     await assert.rejects(f.client.publishCommand(wireDefinition('redirect'),{public:true,relays:['ws://other.invalid']} as never),/always public/);
     // @ts-expect-error Exercise JavaScript callers attempting removed options.
@@ -188,7 +187,7 @@ test('discovery reads author-scoped definitions and deletions without an executo
     assert.ok(f.network.queries.every(query=>query.filter['#d']===undefined));
     f.network.queries=[];const filtered=await lookup.client.discoverCommands({authors:[f.identity.pubkey],ids:['other'],relays:writes});
     assert.deepEqual(filtered.commands.map(command=>command.definition.id),['other']);assert.deepEqual(f.network.queries.find(query=>query.filter.kinds?.includes(31992))!.filter['#d'],['other']);
-    await bot.removeCommand('listed');assert.deepEqual((await lookup.client.discoverCommands({authors:[f.identity.pubkey],relays:writes})).commands.map(command=>command.definition.id),[]);
+    await f.client.stop();bot.dispose();const empty=new Bot(f.client);try{await empty.start();assert.deepEqual((await lookup.client.discoverCommands({authors:[f.identity.pubkey],relays:writes})).commands.map(command=>command.definition.id),[]);}finally{empty.dispose();}
   }finally{bot.dispose();await f.client.close();await lookup.client.close();}
 });
 
@@ -197,7 +196,7 @@ test('startup cancellation fences command publication after an unfinished regist
   const gate=new Promise<void>(resolve=>{release=resolve;}),reading=new Promise<void>(resolve=>{entered=resolve;});
   const query=wire.query;wire.query=async(relays,filter)=>{if(filter.kinds?.includes(31992)){entered();await gate;}return query(relays,filter);};
   const c=new Client({identity:f.identity,transport:wire,dmRelays:[dm],writeRelays:writes,readRelays:[],database:':memory:',keySync:false,recovery:false}),bot=new Bot(c);
-  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{});
+  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{});
   try{
     const rejected=assert.rejects(c.start(),/synchronization canceled/);await reading;const stopped=c.stop();release();await Promise.all([rejected,stopped]);
     assert.deepEqual(f.network.publications,[]);assert.equal(f.network.businessSubscriptions,0);
@@ -217,7 +216,7 @@ for (const order of ['publish-first', 'bot-first'] as const) {
       await assert.rejects(f.client.publishCommand({ ...command,id:command.command, command: 'different' }), /registered Bot command/);
       assert.equal((await f.client.discoverCommands({ authors: [f.client.pubkey], relays: writes })).commands[0].definition.command, 'shared');
 
-      await bot.removeCommand('shared');
+      await f.client.stop();bot.dispose();await f.client.start();
       assert.equal(f.client.hasCommand('shared'), true, 'standalone publication remains registered');
       assert.equal(bot.getCommandDefinitions().length, 0);
       await f.client.revokeCommand('shared');
@@ -231,7 +230,7 @@ for (const order of ['publish-first', 'bot-first'] as const) {
 
 test('background announcement retry does not poll a converged catalog and still retries failed changes', async () => {
   const f = fixture(), bot = new Bot(f.client);
-  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, () => {});
+  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, () => {});
   try {
     await bot.start();
     f.network.queries = [];
@@ -239,7 +238,7 @@ test('background announcement retry does not poll a converged catalog and still 
     assert.equal(f.network.queries.length, 0);
 
     f.network.reject = (_relay, event) => event.kind === 31992;
-    bot.command({command:"later",title:"later",description:"Run /later in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, () => {});
+    bot.command({command:"later",title:"later",description:"Run /later in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, () => {});
     await assert.rejects(f.client.syncCommands(), /Command publication failed/);
     f.network.reject = () => false;
     f.network.queries = [];
@@ -260,13 +259,13 @@ test('background announcement retry does not poll a converged catalog and still 
 test('Bot coordinates use command names and reject legacy custom identifiers in either form',async()=>{
   const f=fixture(),bot=new Bot(f.client);
   try{
-    assert.throws(()=>bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{},{id:'custom'} as never),/Custom command id/);
+    assert.throws(()=>bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{},{id:'custom'} as never),/Custom command id/);
     assert.throws(()=>bot.command({command:'ping',title:'Ping',description:'Ping',id:'custom'} as never,()=>{}),/Custom command id/);
     assert.throws(()=>bot.command({command:'ping',title:'Ping',description:'Ping',id:undefined} as never,()=>{}),/Custom command id/);
-    bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{});assert.equal(bot.getCommandDefinitions()[0].id,'ping');
+    bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{});assert.equal(bot.getCommandDefinitions()[0].id,'ping');
     await bot.start();assert.equal(decodeCommandDefinition(f.network.all().find(event=>event.kind===31992)!)!.definition.id,'ping');
-    await bot.removeCommand('ping');bot.command({command:"pong",title:"pong",description:"Run /pong in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{});await f.client.syncCommands();
-    assert.deepEqual(selectCommandDefinitions(f.network.all(),[f.identity.pubkey]).commands.map(command=>command.definition.id),['pong']);
+    await f.client.stop();bot.dispose();const replacement=new Bot(f.client);replacement.command({command:"pong",title:"pong",description:"Run /pong in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{});await replacement.start();
+    assert.deepEqual(selectCommandDefinitions(f.network.all(),[f.identity.pubkey]).commands.map(command=>command.definition.id),['pong']);replacement.dispose();
   }finally{bot.dispose();await f.client.close();}
 });
 
@@ -322,6 +321,6 @@ test('SQLite upgrade ignores obsolete control events and resumes supported pendi
 test('known truncated startup snapshots fail closed before withdrawal or publication',async()=>{
   const f=fixture(),wire=f.network.transport();const event=await f.identity.sign(encodeCommandDefinition(wireDefinition('old'),10));
   wire.query=async(_relays,filter)=>{assert.deepEqual(filter.kinds,[31992]);assert.equal(filter['#d'],undefined);return Array.from({length:1000},()=>event);};
-  const client=new Client({identity:f.identity,transport:wire,dmRelays:[dm],writeRelays:writes,readRelays:[],keySync:false,recovery:false,database:':memory:'}),bot=new Bot(client);bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{});
+  const client=new Client({identity:f.identity,transport:wire,dmRelays:[dm],writeRelays:writes,readRelays:[],keySync:false,recovery:false,database:':memory:'}),bot=new Bot(client);bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{});
   try{await assert.rejects(bot.start(),/incomplete/);assert.deepEqual(f.network.publications,[]);assert.equal(f.network.businessSubscriptions,0);}finally{bot.dispose();await client.close();await f.client.close();}
 });

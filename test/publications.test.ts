@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { localNip17Identity } from '../src/protocol.js';
 import { Client } from './client.js';
 import {test} from 'node:test';
@@ -24,7 +25,7 @@ test('read/write defaults, role overrides and canonical NIP-65 tags',()=>{
 for(const mode of ['nip17','nip4e'] as const)test(`${mode}: start auto-publishes commands and role metadata to distinct local relays`,async()=>{
  const dm=await testRelay(),read=await testRelay(),write=await testRelay(),identity=localNip17Identity();
  const client=new Client({identity,mode,database:':memory:',dmRelays:[dm.url],readRelays:[read.url],writeRelays:[write.url]}),bot=new Bot(client);
- bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{}, {title:'Ping',description:'Reply pong.'});
+ bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{}, {title:'Ping',description:'Reply pong.'});
  try{
   await bot.start();
   const events=[...write.events.values()];assert.deepEqual(new Set(events.map(e=>e.kind)),new Set([31992]));

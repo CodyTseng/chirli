@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import assert from 'node:assert/strict';
 import { Bot, nsecSigner, generateSecretKey, type Signer } from 'chirli';
 import { MemoryRelay } from './_support.js';
@@ -12,7 +13,7 @@ async function run(signer: Signer, mode: 'nip17' | 'nip4e') {
   const bot = service;
   let response = '';
 
-  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => { await ctx.reply('nsec signer pong'); }, {});
+  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { await ctx.reply('nsec signer pong'); }, {});
   peer.handle(({ message }) => { response = message.text; });
 
   try {

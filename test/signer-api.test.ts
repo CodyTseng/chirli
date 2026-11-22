@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { nsecSigner, bunkerSigner, generateSecretKey, type Signer } from '../src/index.js';
@@ -21,7 +22,7 @@ for (const mode of ['nip17', 'nip4e'] as const) for (const delayed of [false, tr
     const peerSigner = nsecSigner(generateSecretKey());
     const peer = await Client.create({ signer:peerSigner, mode, transport:relay.transport(), relays:['ws://memory.invalid'], database:':memory:' });
     const bot = new Bot(service); const replies:string[] = [];
-    bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => { await ctx.reply('pong'); }, {});
+    bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { await ctx.reply('pong'); }, {});
     peer.on('message', message => { replies.push(message.text); });
     try {
       assert.equal(service.pubkey,await signer.getPublicKey());

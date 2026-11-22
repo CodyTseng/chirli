@@ -9,7 +9,7 @@ import type {Rumor} from './protocol.js';
 import type {ThreadOptions} from './public-thread.js';
 import type { Message, MessageListOptions } from './store.js';
 
-export type { BotCommandOptions, CommandHandler, Context, MessageHandler, Middleware, Next } from './bot-handlers.js';
+export type { CommandContext, BotCommandOptions, CommandHandler, Context, MessageHandler, Middleware, Next } from './bot-handlers.js';
 export type { Session, SessionStore } from './session.js';
 
 export type BotOptions<S = Record<string, unknown>> = ClientOptions & { sessionStore?: SessionStore<S> };
@@ -82,7 +82,6 @@ export class Bot<S = Record<string, unknown>> {
     return this;
   }
 
-  removeCommand(name: string) { return this.#handlers.removeCommand(name); }
   getCommandDefinitions() { return this.#handlers.getCommandDefinitions(); }
 
   handle(handler: MessageHandler<S>): () => void { return this.#handlers.handle(handler); }

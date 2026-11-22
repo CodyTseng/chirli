@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,8 +23,8 @@ async function deliver(target: Client, sender: ReturnType<typeof createIdentity>
 for (const mode of ['nip17','nip4e'] as const) test(`${mode}: simple and typed commands accept optional bare/prefixed qualifiers and preserve text`, async () => {
   const c = client(wire(),mode), bot = new Bot(c), peer = createIdentity(), other = createIdentity();
   const simple: string[] = [], typed: bigint[] = []; let fallback = 0;
-  bot.command({command:"echo-text",title:"echo-text",description:"Run /echo-text in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, (_ctx, { text }) => { simple.push(text ?? ''); }, {});
-  bot.command({scopes:['kind:14'], command:'add',title:'Add',description:'Add',args:[{name:'n',type:'number',required:true,label:'N'}]}, (_ctx, { n }) => { typed.push(n); },{});
+  bot.command({command:"echo-text",title:"echo-text",description:"Run /echo-text in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, (_ctx, { text }) => { simple.push(text ?? ''); }, {});
+  bot.command({scopes:['kind:14'], command:'add',title:'Add',description:'Add',args:z.object({"n":z.bigint().meta({label:'N'})})}, (_ctx, { n }) => { typed.push(n); },{});
   bot.handle(() => { fallback++; });
   assert.deepEqual(bot.getCommandDefinitions().map(({ id }) => id), ['echo-text', 'add']);
   try {
@@ -34,18 +35,18 @@ for (const mode of ['nip17','nip4e'] as const) test(`${mode}: simple and typed c
     }
     assert.deepEqual(simple,Array(3).fill('  literal\nnostr:text  ')); assert.deepEqual(typed,[12n,12n,12n]);
     for (const text of [`/echo-text@nostr:${npubEncode(other.pubkey)} ignored`,' /echo-text ignored','prefix /add 1','/echo-text@npub1bad ignored','/add invalid']) await deliver(c,peer,text);
-    assert.equal(fallback,5); assert.equal(simple.length,3);
+    assert.equal(fallback,4); assert.equal(simple.length,3);
   } finally { bot.dispose(); await c.close(); }
 });
 
 test('Bot detaches without stopping Client and injected transport remains application-owned', async () => {
   let closed = 0;
   const shared = wire({close(){closed++;}}), c = client(shared), a = new Bot(c), b = new Bot(c), peer = createIdentity(); let handled = 0;
-  a.command({command:"a",title:"a",description:"Run /a in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{}, {}); b.command({command:"b",title:"b",description:"Run /b in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{handled++;},{});
+  a.command({command:"a",title:"a",description:"Run /a in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{}, {}); b.command({command:"b",title:"b",description:"Run /b in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{handled++;},{});
   try {
     await c.start(); await a.close(); a.dispose();
     assert.equal(a.getCommandDefinitions().length,0);
-    assert.throws(()=>a.command({command:"later",title:"later",description:"Run /later in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{}),/disposed/);
+    assert.throws(()=>a.command({command:"later",title:"later",description:"Run /later in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{}),/disposed/);
     await deliver(c,peer,'/b'); assert.equal(handled,1); assert.equal(closed,0);
     b.dispose(); await c.close(); assert.equal(closed,0);
     const owned = new Client({identity:createIdentity(),transport:shared,database:':memory:',relays:[url]});
@@ -93,29 +94,29 @@ test('session keys see staged updates and only successful messages save a snapsh
   };
   const make = () => {
     const bot = new Bot(c, { sessionStore });
-    bot.command({command:"visit",title:"visit",description:"Run /visit in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ({ session }) => {
+    bot.command({command:"visit",title:"visit",description:"Run /visit in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ({ session }) => {
       const count = (await session.getItem('count') ?? 0) + 1;
       session.setItem('count', count);
       session.setItem('name', 'Ada');
       assert.equal(await session.getItem('count'), count);
     });
-    bot.command({command:"fail",title:"fail",description:"Run /fail in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, ({ session }) => {
+    bot.command({command:"fail",title:"fail",description:"Run /fail in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, ({ session }) => {
       session.clear();
       session.setItem('count', 99);
       throw new Error('handler failed');
     });
-    bot.command({command:"forget",title:"forget",description:"Run /forget in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ({ session }) => {
+    bot.command({command:"forget",title:"forget",description:"Run /forget in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ({ session }) => {
       session.removeItem('name');
       assert.equal(await session.getItem('name'), undefined);
     });
-    bot.command({command:"reset",title:"reset",description:"Run /reset in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ({ session }) => {
+    bot.command({command:"reset",title:"reset",description:"Run /reset in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ({ session }) => {
       session.setItem('name', 'Discarded');
       session.clear();
       assert.equal(await session.getItem('name'), undefined);
       assert.equal(await session.getItem('count'), undefined);
       session.setItem('name', 'New name');
     });
-    bot.command({command:"clear",title:"clear",description:"Run /clear in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, ({ session }) => { session.clear(); });
+    bot.command({command:"clear",title:"clear",description:"Run /clear in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, ({ session }) => { session.clear(); });
     bot.handle(() => {});
     return bot;
   };
@@ -165,7 +166,7 @@ test('closing drains default sessions and preserves state inspection across sign
   let c = await open(), release!:()=>void, entered!:()=>void;
   const gate = new Promise<void>(resolve=>{release=resolve;}), started = new Promise<void>(resolve=>{entered=resolve;});
   const bot = new Bot<{count:number}>(c);
-  bot.command({command:"visit",title:"visit",description:"Run /visit in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},async ctx=>{ctx.session.setItem('count',(await ctx.session.getItem('count') ?? 0)+1);entered();await gate;},{});
+  bot.command({command:"visit",title:"visit",description:"Run /visit in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},async ctx=>{ctx.session.setItem('count',(await ctx.session.getItem('count') ?? 0)+1);entered();await gate;},{});
   try {
     await c.start();const r=rumor(peer.pubkey,c.pubkey,'/visit');
     await c.receive(await wrap(r,peer,c.pubkey,c.pubkey,standardEnvelope),'live');await started;

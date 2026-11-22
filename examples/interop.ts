@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import assert from 'node:assert/strict';
 import { Bot, generateSecretKey, nsecSigner } from 'chirli';
 import { MemoryRelay } from './_support.js';
@@ -17,7 +18,7 @@ peer.onError(error => { failures.push(error); });
 service.onError(error => { failures.push(error); });
 let response = '';
 peer.handle(({ message }) => { response = message.text; });
-bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => { await ctx.reply('identity-key pong'); });
+bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { await ctx.reply('identity-key pong'); });
 try {
   await peer.start();
   // Real peer account tooling may manage inbox relays separately. Demonstrate an

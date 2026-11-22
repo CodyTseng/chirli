@@ -156,14 +156,13 @@ Every handler has a conversation-scoped `ctx.session` with `getItem`, `setItem`,
 | `command(definition, fn, options?)` | Register an explicitly scoped command with an optional typed argument schema |
 | `handle(fn)` | Register the handler for messages with no matching command |
 | `catch(observer)` | Observe session/middleware failures without consuming them |
-| `removeCommand(name)` | Remove this Bot's handler/registration and await synchronization |
 | `getCommandDefinitions()` | Detached snapshots of this Bot's active definitions |
 
 Use `use()` to register middleware. It runs in registration order and receives `(ctx, next)`. Await `next()` to continue to later middleware and routing. Middleware can return early to stop processing.
 
 Routing calls the first matching command with `(ctx, args)`. If none matches, it calls the handler registered with `handle(ctx => …)`. Authorization denial for a matching command ends routing. Context provides `message`, `sender`, `conversation`, `reply`, `react`, `getMessage`, `history`, and `session`.
 
-When given a literal definition, TypeScript infers the argument names and types. Required values are present, optional values include `undefined`, and enum values use the declared choices. For a definition stored in a separate variable, use `as const satisfies BotCommandDefinition` to preserve its literal types. A dynamic definition exposes a lookup whose values may be absent.
+When args is a Zod 4 object, TypeScript infers its validated output in a separate handler-only ctx.args and the existing second handler parameter. The middleware context is not mutated; its property descriptors, methods and shared session are retained on the handler view. Ordinary middleware/fallback Context has no args. Required values are present, optional values include `undefined`, and enum values use the declared choices. For a definition stored in a separate variable, use `as const satisfies BotCommandDefinition` to preserve its literal types. A dynamic definition exposes unknown argument values until narrowed.
 
 The published `d` equals the command name; custom `id` and the old string shorthand are rejected. Supply `scopes` containing at least one distinct `kind:14`, `kind:1` or `kind:1111`; no kind is inserted implicitly. The same scopes govern publication and authenticated routing. `authorize(ctx, invocation)` controls execution independently of public metadata.
 
@@ -171,7 +170,7 @@ The published `d` equals the command name; custom `id` and the old string shorth
 
 Session load, middleware, fallback and session save share one error boundary. `catch()` cannot mark failed work successful, and observer failures do not replace the original error. Sessions save only after successful processing.
 
-Use `await bot.removeCommand(name)` to withdraw a command. Closing the Bot preserves the published catalog for restart.
+Omit a command from the next startup registry to withdraw it automatically on restart. Closing the Bot preserves the published catalog until that reconciliation. Runtime additions remain supported; runtime removal is not exposed.
 
 ## Public commands
 
@@ -179,8 +178,8 @@ All command definitions are public on configured write relays. Register the comp
 
 | Method | Behavior |
 | --- | --- |
-| `syncCommands()` | Reconcile the full remote view; return added/updated/removed IDs and signed index |
-| `discoverCommands({authors,relays,ids?,limit?})` | Read signed catalog membership, falling back to legacy definitions |
+| `syncCommands()` | Reconcile own author-scoped definitions on write relays; return net added/updated/removed IDs across the whole coalesced call |
+| `discoverCommands({authors,relays,ids?,limit?})` | Read and verify author-scoped kind 31992 definitions and kind 5 withdrawals; optional ids narrows definitions only |
 
 Command discovery is read-only and returns a bounded relay snapshot with `complete: false`. Neither discovery nor scopes grant execution permission. See [command syntax, schemas and lifecycle](NIP-CD.md).
 
@@ -196,7 +195,7 @@ Custom `Transport` supplies `query`, `subscribe`, `publish` and `close`. Subscri
 
 Exported `RelayError`, `SignerError`, `StorageEncryptionError` and `Nip4eCompatibilityError` distinguish operational failures. Relay diagnostics sanitize URLs/reasons; application error observers may still see sensitive business context. Optional timing observers cannot alter transport success. See [live diagnostics](../examples/live/README.md#diagnose-slow-replies).
 
-`removeCommand(name)` operates on the Bot command name. `syncCommands()` returns only `added`, `updated`, `removed` and optionally waits/retries automatic synchronization; normal startup and running changes require no manual call. Startup performs broad author-only kind 31992 reads per write relay, without `#d` or remote kind 5 queries. Discovery independently reads 31992 plus kind 5, adding `#d` only when `ids` is supplied, and returns no index result field. Protocol-level `CommandDefinition.id` still denotes an external event's actual `d`, separate from its event hash. See [upgrade details](NIP-CD.md#upgrade-behavior).
+Command removal is expressed by the next startup registry, not a runtime method. `syncCommands()` returns only `added`, `updated`, `removed` and optionally waits/retries automatic synchronization; normal startup and running changes require no manual call. Startup performs broad author-only kind 31992 reads per write relay, without `#d` or remote kind 5 queries. Discovery independently reads 31992 plus kind 5, adding `#d` only when `ids` is supplied, and returns no index result field. Protocol-level `CommandDefinition.id` still denotes an external event's actual `d`, separate from its event hash. See [upgrade details](NIP-CD.md#upgrade-behavior).
 
 ## Optional official components
 
@@ -231,3 +230,50 @@ Public events are cloned and independently reverified on every call, including I
 A rumor has no standalone signature. The SDK requires an exact match with the current account/mode's persisted authenticated incoming DM record: hash, canonical fields/tags, sender, recipient, private conversation, text, timestamp and reply reference. Missing records, outgoing self copies, other accounts, changed rumors and outer envelopes are rejected. Reopen with the same signer, database, message backend, mode and any storage key; retaining a rumor alone cannot reconstruct its authentication. DM thread context remains anchored to the saved trigger and excludes later conversation entries.
 
 Calls snapshot the event before asynchronous work, and handler methods retain separate internal snapshots. Mutating a caller object does not retarget an in-flight operation; supplying an already altered object fails verification. Calls require a started/open Bot instance and reject after close. Neither method invokes inbound handlers or provides a queue, token, idempotency key or exactly-once guarantee. Repeating a reply call creates a new logical reply; use application idempotency and `flushOutbox()` for already pending sends. These are explicit application actions, not a second inbound authorization hook; allowlist is not an outbound ACL. Saved DM events contain plaintext and must not be logged or placed in an unprotected job store.
+
+## Zod command arguments
+
+Declare Zod 4 as an application dependency, import `z` from `zod`, and pass one object directly as `args`. No argument-builder API, second schema or per-command error callback is needed.
+
+```ts
+import {z} from 'zod';
+import {InvalidArgsError} from 'chirli';
+
+bot.use(async (ctx, next) => {
+  try { await next(); }
+  catch (error) {
+    if (!(error instanceof InvalidArgsError)) throw error;
+    await ctx.reply(`Usage error for /${error.command}`);
+  }
+});
+
+bot.command({
+  command:'pick', scopes:['kind:14','kind:1','kind:1111'],
+  args:z.object({
+    user:z.string().meta({label:'User',nipcdType:'pubkey'}),
+    count:z.bigint().min(1n).max(10n).meta({label:'Count'}),
+    mode:z.enum(['short','full']).optional().meta({label:'Mode'}),
+  }),
+}, async (ctx, args) => {
+  // ctx.args and args are the same validated result; count is bigint.
+  await ctx.reply(`${ctx.args.mode ?? 'short'}: ${args.count}`);
+});
+```
+
+Field names and insertion order generate NIP-CD positional names/order. `optional()` sets required=false. Labels come from field `.meta({label})`, defaulting to the name. String → word, bigint → number, boolean → bool and string enum → enum/choices are inferred. Annotate strings with `nipcdType:'text'|'pubkey'|'event'|'relay'` when needed. For address use `.meta({nipcdType:'address'})` on `z.object({kind:z.number().int(),pubkey:z.string(),identifier:z.string(),relays:z.array(z.string())})`; decoder output matches the existing CommandAddress structure. Constraints/refinements run on decoded values, including asynchronous refinements.
+
+The supported subset is deliberately bounded: top-level object with no __proto__ field, those scalar types, one optional wrapper per field, and the documented address object. Transforms/pipes, overwrites (including trim/normalize), coercion, defaults, nullable/union/lazy schemas, loose/catchall objects and arbitrary arrays/nested objects are rejected at registration. Validator exceptions are business errors, not normal schema rejection. Existing wire restrictions remain: unsigned protocol number tokens decode as bigint; required fields precede optional ones; at most one optional field; text is final. Zod min/max/refinements are local validation, not extra 31992 tags. No arbitrary transformations are inferred. Metadata should be attached to the field schema; use optional().meta(...) for optional fields.
+
+Registration still automatically publishes the derived CommandArgument[] in the existing kind 31992 format; encode/decode/discovery and protocol CommandDefinition/CommandArgument stay unchanged. `getCommandDefinitions()` returns derived wire definitions, suitable for the pure `parseCommand()` helper. Old Bot args arrays must migrate to z.object; pure protocol helpers continue accepting wire arrays.
+
+After entry policy and middleware, routing first verifies command/target/scopes, then decodes and validates. A matched command's missing/invalid/extra arguments or Zod rejection raises `InvalidArgsError` with command, category (`decode` or `validation`) and bounded safe issues containing only code and registered field path. Submitted values, custom issue messages, raw decoder reasons and arbitrary custom paths are omitted. It never falls through to plain handling. Middleware may catch around await next(); otherwise bot.catch observes it once. With neither handler, it completes silently without an automatic response or retry. An uncaught framework InvalidArgsError skips the session commit; middleware that catches and returns successfully can commit its intentional session writes. Only the exact framework-generated error for that dispatch is terminal; other business/middleware errors (even application-created InvalidArgsError) keep failed/report/retry behavior.
+
+If a command uses args-dependent `authorize`, malformed input is silently consumed: no validation-error callback is exposed because invalid arguments cannot authorize an error response. Validator exceptions before authorization are retained internally until middleware unwinds, then sent unchanged to the inbox failed/report/retry path. They bypass middleware catch and bot.catch, cannot authorize an error reply, and do not commit sessions. Validators without authorize and other business errors retain existing error-chain semantics. For valid data authorize receives the validated invocation.args before the business handler. No new response-authorization or per-command error callback is introduced. Wrong targets/scopes and entry-policy denials never generate a command-argument error. Public initial admission remains restricted to known, genuinely targeted and scoped invocations; historical/repeated work does not replay error handlers.
+
+Official requestTiming also reports failure for a validator exception deferred until after middleware because command authorization has not run. Its internal signal contains only failure state, without exposing the original exception or changing next() behavior. Operational onError and inbox retry semantics remain unchanged.
+
+### Command synchronization result across rounds
+
+Concurrent syncCommands calls share one in-flight promise. If registrations change during reconciliation or public-subscription EOSE, it repeats until the current registry is synchronized and returns combined added/updated/removed IDs across every completed round of that promise, including rounds before a caller joined it. Each ID appears at most once, in one category, ordered by its first observed change. Added then updated remains added; added then removed disappears from the net result; updated then removed becomes removed; removed then re-added becomes updated. Updated means a previously present coordinate changed during this operation and ends present, even if its original content was restored. These are net presence deltas from the low-level observed per-round differences, not a global relay archive/content diff. The low-level journal, signed event IDs, ACK requirements and per-round reconciliation are unchanged. Failure/cancellation rejects instead of returning partial results; already published durable work is not rolled back.
+
+A rejected initial public-subscription EOSE is not readiness. Retrying the same kinds can create a fresh subscription; configured automatic reconnect can also recover its managed subscription. Stale failed attempts cannot close a newer subscription, and stop fences late readiness callbacks.

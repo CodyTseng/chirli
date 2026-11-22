@@ -1,6 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { signChecked, type Identity } from './protocol.js';
-import { commandRelayURL, parseCommand, type CommandDefinition } from './nipcd.js';
+import { commandRelayURL, parseCommandHead, matchesCommandScopes, type CommandDefinition } from './nipcd.js';
 import { InboxSubscription, type ReconnectOptions } from './inbox.js';
 import { relayUnion } from './relay-roles.js';
 import { PublicThreads, publicEvent, threadStructure, referenceKey, commentReply, type PublicThreadOptions, type ThreadOptions } from './public-thread.js';
@@ -36,6 +36,9 @@ export class PublicInbox {
     private subscriptions?: InboxSubscription;
     private running = false;
     private kinds = '';
+    private initialReady=false;
+    private starting?:Promise<void>;
+    private generation=0;
     private queues = new Map<string, Promise<void>>();
     private scheduled = new Set<string>();
     private flushing?: Promise<void>;
@@ -65,34 +68,48 @@ export class PublicInbox {
             return false;
         }
         return this.definitions().some(definition => {
-            const result = parseCommand(definition, event, { executor: this.identity.pubkey, relay });
-            if (result.status !== 'matched')
+            const result = parseCommandHead(event.content,definition.command,this.identity.pubkey);
+            if (result.status !== 'matched'||!matchesCommandScopes(definition.scopes??[],event,{relay}))
                 return false;
-            if (result.invocation.qualifier !== undefined)
+            if (result.qualifier !== undefined)
                 return true;
             const targets = new Set(event.tags.filter(tag => tag[0] === 'p').map(tag => tag[1]));
             return targets.size === 1 && targets.has(this.identity.pubkey);
         });
     }
-    async start(kinds: number[]) {
+    start(kinds: number[]):Promise<void> {
         const next = [...new Set(kinds)].sort().join(',');
-        if (this.running && next === this.kinds)
-            return;
+        if(this.running&&next===this.kinds&&(this.initialReady||this.starting))return this.starting??Promise.resolve();
         this.subscriptions?.close();
-        this.subscriptions = undefined;
-        this.running = true;
-        this.kinds = next;
-        if (!kinds.length)
-            return;
-        this.subscriptions = new InboxSubscription({ transport: this.transport, store: this.store, relays: this.relays, filter: { kinds, limit: 500 }, recovery: false, reconnect: this.reconnect,
-            receive: async (event, source, relay) => { this.receive(event, source, relay); }, error: this.report, reconnected: () => this.flush() });
-        await this.subscriptions.ready;
-        if (!this.running)
-            return;
-        for (const [id, record] of Object.entries(this.state.records))
-            if (['pending', 'failed'].includes(record.state) && record.event)
-                this.enqueue(id, record);
-        await this.flush();
+        this.subscriptions=undefined;
+        this.running=true;
+        this.kinds=next;
+        this.initialReady=false;
+        const generation=++this.generation;
+        if(!kinds.length){this.initialReady=true;this.starting=undefined;return Promise.resolve();}
+        const current=()=>this.running&&this.generation===generation&&this.subscriptions===subscription;
+        const subscription=new InboxSubscription({transport:this.transport,store:this.store,relays:this.relays,filter:{kinds,limit:500},recovery:false,reconnect:this.reconnect,
+            receive:async(event,source,relay)=>{this.receive(event,source,relay);},error:this.report,
+            reconnected:async()=>{if(current()){this.initialReady=true;await this.flush();}}});
+        this.subscriptions=subscription;
+        const task=(async()=>{
+            try {await subscription.ready;}
+            catch(error){
+                if(current()){
+                    this.initialReady=false;
+                    if(this.reconnect===false){this.subscriptions=undefined;this.running=false;subscription.close();}
+                    // Otherwise retain managed automatic retries. A same-kind start after rejection
+                    // can replace this unready owner, unless it has already recovered.
+                }
+                throw error;
+            }
+            if(!current())return;
+            this.initialReady=true;
+            for(const[id,record]of Object.entries(this.state.records))if(['pending','failed'].includes(record.state)&&record.event)this.enqueue(id,record);
+            await this.flush();
+        })().finally(()=>{if(this.starting===task)this.starting=undefined;});
+        this.starting=task;
+        return task;
     }
     receive(input: Event, source: 'live' | 'history', relay?: string): boolean {
         if (!this.running || !relay)
@@ -241,7 +258,7 @@ export class PublicInbox {
                 this.enqueue(id, record);
     }
     thread(input: PublicInput, options?: ThreadOptions) { return this.threads.resolve(input.event, options); }
-    stop() { this.running = false; this.subscriptions?.close(); this.subscriptions = undefined; }
+    stop() { this.running=false;this.generation++;this.initialReady=false;this.starting=undefined;this.subscriptions?.close();this.subscriptions=undefined; }
     async idle() {
         while (this.queues.size)
             await Promise.all(this.queues.values());

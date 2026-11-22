@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { localIdentity, localNip17Identity, type LocalIdentity as Identity } from '../src/protocol.js';
 import { Client } from './client.js';
 import { test } from 'node:test';
@@ -23,7 +24,7 @@ for(const mode of ['nip4e','nip17'] as const) {
     const relay=await testRelay(), identity=mode==='nip17'?localNip17Identity:localIdentity, sender=identity(), receiver=identity();
     const wire=new WebSocketTransport(), errors:unknown[]=[];
     const client=new Client({mode,identity:receiver,relays:[relay.url],database:':memory:',storageKey:generateSecretKey(),historyLimit:1,reconnect:{initialDelayMs:30,maxDelayMs:60,jitter:0},recovery:{pageSize:2,maxPages:20}});
-    const bot=new Bot(client);let commands=0;bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{commands++;});client.onError(error=>{errors.push(error);});
+    const bot=new Bot(client);let commands=0;bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{commands++;});client.onError(error=>{errors.push(error);});
     const now=Math.floor(Date.now()/1000);
     try {
       await bot.start();

@@ -91,3 +91,12 @@ export class RelayError extends Error {
     this.historyReason = details.historyReason;
   }
 }
+
+/** Terminal input rejection, with no submitted values, raw Zod messages or credentials. */
+export class InvalidArgsError extends Error {
+  readonly issues:readonly {readonly code:string;readonly path:readonly string[]}[];
+  constructor(readonly command:string,readonly category:'decode'|'validation',issues:readonly {code:string;path:readonly string[]}[]=[]){
+    super(`Invalid arguments for /${command}`);this.name='InvalidArgsError';
+    this.issues=Object.freeze(issues.map(issue=>Object.freeze({code:issue.code,path:Object.freeze([...issue.path])})));
+  }
+}

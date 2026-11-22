@@ -1,3 +1,4 @@
+import type {z} from 'zod';
 import { verifyEvent, type Event, type EventTemplate } from 'nostr-tools';
 import { decode } from 'nostr-tools/nip19';
 import { hexKey, validTimestamp } from './protocol.js';
@@ -24,7 +25,7 @@ export interface CommandDefinition {
 }
 
 /** Local command coordinates are derived from the trigger; custom identifiers are forbidden. */
-export type BotCommandDefinition = Omit<CommandDefinition, 'id' | 'scopes' | 'title' | 'description'> & { id?: never; scopes: readonly string[]; title?: string; description?: string };
+export type BotCommandDefinition = Omit<CommandDefinition, 'id' | 'scopes' | 'title' | 'description' | 'args'> & { id?: never; scopes: readonly string[]; args?: z.ZodObject; title?: string; description?: string };
 
 export interface CommandAddress {
   kind: number;
@@ -45,13 +46,9 @@ type ParsedArgument<A extends CommandArgument, T extends CommandArgumentType = A
 /** Infer named values from a literal schema. Dynamic definitions retain a safe lookup type. */
 export type CommandArgs<D extends string | BotCommandDefinition> =
   D extends string ? { readonly text: string | undefined } :
-  D extends { args: readonly CommandArgument[] } ? {
-    readonly [A in D['args'][number] as A['name']]:
-      string extends A['name'] ? ParsedArgument<A> | undefined :
-      A['required'] extends true ? ParsedArgument<A> : ParsedArgument<A> | undefined;
-  } :
-  'args' extends keyof D ? Readonly<Record<string, CommandValue | undefined>> :
-  Record<never, never>;
+  D extends {args:infer A extends z.ZodObject} ? z.output<A> :
+  'args' extends keyof D ? Readonly<Record<string,unknown>> : Record<never,never>;
+
 
 export interface CommandEvent {
   kind: number;

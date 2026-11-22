@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Bot,allowlist,requestTiming,nsecSigner,generateSecretKey,type InboundPolicy,type RequestTiming,type Transport} from '../src/index.js';
@@ -55,7 +56,7 @@ test('optional components work with public Bot.use and automatic command declara
  const bot=new Bot({signer:nsecSigner(generateSecretKey()),transport:network.transport(),relays:urls,database:':memory:',inboundPolicy:allowlist([peerIdentity])});
  const peer=new Bot({signer:peerSigner,transport:network.transport(),relays:urls,database:':memory:'});let reply='';const original=new Error('PRIVATE HANDLER ERROR');
  bot.use(requestTiming({onTiming:metric=>{metrics.push(metric);if(metric.outcome==='failure')throw new Error('observer failure');}}));
- bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},async ctx=>{await ctx.reply('pong');});bot.command({command:"fail",title:"fail",description:"Run /fail in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},()=>{throw original;});bot.catch(error=>{errors.push(error);});peer.handle(ctx=>{reply=ctx.message.text;});
+ bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},async ctx=>{await ctx.reply('pong');});bot.command({command:"fail",title:"fail",description:"Run /fail in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{throw original;});bot.catch(error=>{errors.push(error);});peer.handle(ctx=>{reply=ctx.message.text;});
  try{
   await bot.start();await peer.start();const success=await peer.send(bot.pubkey,'/ping');await bot.idle();await peer.idle();assert.equal(reply,'pong');assert.equal(bot.getMessageState(success.id),'done');
   const failure=await peer.send(bot.pubkey,'/fail');await bot.idle();assert.equal(bot.getMessageState(failure.id),'failed');assert.deepEqual(errors,[original]);assert.deepEqual(metrics.map(metric=>metric.outcome),['success','failure']);

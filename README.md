@@ -146,14 +146,14 @@ Register shared middleware with `bot.use((ctx, next) => ...)`. Middleware runs i
 Declare a typed argument schema in `command()` for typed arguments. Here `value` is inferred as `bigint`, and the published `d` is `count`.
 
 ```ts
+import {z} from 'zod';
+
 bot.command(
   {
     command: 'count', scopes: ['kind:14'],
     title: 'Count',
     description: 'Read an unsigned count.',
-    args: [
-      { name: 'value', type: 'number', required: true, label: 'Value' },
-    ],
+    args: z.object({ value: z.bigint().meta({label:'Value'}) }),
   },
   async (ctx, { value }) => {
     await ctx.reply(String(value));
@@ -162,11 +162,7 @@ bot.command(
 
 ```
 
-Remove a command later with:
-
-```ts
-await bot.removeCommand('count');
-```
+To remove or rename a command, update the declared command set and restart with the same account and relay configuration. Startup automatically withdraws definitions absent from the new registry. There is no runtime removal method.
 
 All registered commands are public on write relays. Startup adds or updates definitions and withdraws commands absent from the local registry. Definitions use kind `31992` and withdrawals use kind `5`; there is no executor-list event. User-installed kind `10992` lists are untouched.
 
@@ -235,7 +231,7 @@ Start with the [first bot tutorial](docs/TUTORIAL.md) for a step-by-step path fr
 
 Chirli supports one-to-one private text, reply references, sending reactions, and explicitly scoped kind 1/1111 public commands. See [public inputs and threads](docs/PUBLIC.md). Groups, attachments, full archive recovery and exactly-once external effects are outside its scope. One active Bot/process per account database is supported. Public relays, external signer products and production deployments require separate validation.
 
-Bot command identifiers come from their command names; custom `id` parameters are rejected. Renaming a command removes the old coordinate and adds the new one. Startup compares one broad author-scoped kind 31992 scan per write relay with the complete local registry; runtime changes synchronize automatically. Remote kind 5 queries belong to independent discovery, while locally pending withdrawals remain durable. See [command lifecycle and upgrade behavior](docs/NIP-CD.md).
+Bot command identifiers come from their command names; custom `id` parameters are rejected. Renaming a command removes the old coordinate and adds the new one. Startup compares one broad author-scoped kind 31992 scan per write relay with the complete local registry; runtime additions synchronize automatically. Remote kind 5 queries belong to independent discovery, while locally pending withdrawals remain durable. See [command lifecycle and upgrade behavior](docs/NIP-CD.md).
 
 ## Optional inbound policy and processing timing
 
@@ -267,3 +263,5 @@ await bot.start();
 Run `npm run example:public` for an offline three-kind demo and deterministic application-owned `/summarize` mock. See [targeting, replies, thread bounds and migration](docs/PUBLIC.md).
 
 For application-owned background work, retain `ctx.input.event` and later call `await bot.thread(event,{limit:30})` and `await bot.reply(event,text)`. Both preserve private/public routing and reuse handler semantics. DM authentication requires the same account's retained incoming record; a public target requires the complete signed event. See [delayed calls and trust requirements](docs/API.md#replies-and-context-after-a-handler), or run `npm run example:async-reply` entirely offline.
+
+Command `args` accepts a Zod 4 `z.object(...)` directly. The schema both generates NIP-CD metadata and validates decoded input; handler-only `ctx.args` and the second handler argument share the inferred valid result. Use middleware or `bot.catch` for centralized `InvalidArgsError` handling; no automatic error reply or retry is added. See [schema support and authorization boundaries](docs/API.md#zod-command-arguments).

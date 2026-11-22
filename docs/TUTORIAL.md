@@ -43,6 +43,42 @@ Send `/hello` to get a greeting with a `nostr:npub1…` mention. Clients that su
 
 `runLive` is an example application helper, not an SDK API. It selects a signer, constructs and starts a Bot, prints readiness and closes application-owned resources on signals. See [runtime.ts](../examples/live/runtime.ts).
 
+### Validate command parameters with Zod
+
+The existing live commands example already imports z from zod; keep that import once. Add only these imports:
+
+```ts
+import {InvalidArgsError} from 'chirli';
+import {randomInt} from 'node:crypto';
+```
+
+Inside the existing runLive callback, register shared error handling before the command:
+
+```ts
+bot.use(async (ctx, next) => {
+  try { await next(); }
+  catch (error) {
+    if (!(error instanceof InvalidArgsError)) throw error;
+    await ctx.reply('Usage: /roll <1..20>');
+  }
+});
+
+bot.command({
+  command:'roll', scopes:['kind:14'],
+  args:z.object({sides:z.bigint().min(1n).max(20n).meta({label:'Sides'})}),
+}, async (ctx, args) => {
+  // Both entry points contain the same validated output.
+  const rolled=randomInt(1,Number(ctx.args.sides)+1);
+  await ctx.reply(`Rolled ${rolled} on a ${args.sides}-sided die.`);
+});
+```
+
+Rebuild and restart, then send `/roll 6`: the reply is `Rolled N on a 6-sided die.`, with N in 1..6. `/roll`, `/roll invalid` and `/roll 21` each produce `Usage: /roll <1..20>` from the shared middleware, never the command handler. Arguments are decoded by NIP-CD before Zod runs; number tokens produce bigint. No response or retry is added when no error handler is configured. Plain fallback does not receive invalid arguments for a recognized, correctly targeted/scoped command.
+
+Only command handlers have typed ctx.args; middleware uses the ordinary context before validation and sees no args after next returns. Use `.meta({nipcdType:'text'})` for a final free-text string; plain strings are words. See [schema support](API.md#zod-command-arguments) for optional/address fields and unsupported transforms. To run these valid/invalid examples without any external connection, build and run `npm run example:commands`; its /roll handler uses the same schema and middleware.
+
+For commands with args-dependent authorize, invalid input is silently terminated: an invalid request cannot authorize a usage reply. A validator exception before authorization bypasses reply-capable middleware/catch observers and reaches operational onError plus failed/retry state unchanged. Other business errors keep the normal retry contract.
+
 ## 3. Persist conversation state
 
 Use the conversation’s key-value storage through `ctx.session`. The handler supplies the default when a key is missing.
@@ -81,7 +117,7 @@ bot.catch((error, ctx) => {
 });
 ```
 
-`Bot.catch()` observes session and middleware errors; it does not mark the message successful. The original error remains retryable even if the observer throws.
+`Bot.catch()` observes session, middleware and business errors. Business errors remain failed/retryable even if the observer throws. Framework InvalidArgsError is different: it is terminal by default, never reaches the business handler or plain fallback, and is silent unless middleware or bot.catch explicitly handles it.
 
 Inspect `bot.getMessageState(id)` or `bot.listMessages({ state: 'failed' })`. Retry from application management code, outside message handlers:
 
@@ -95,7 +131,7 @@ Handlers are serial per conversation. Calling `idle()`, `retryInbox()`, `stop()`
 
 All commands are public on configured write relays. Their definitions are synchronized before Bot startup finishes. Register the complete command set before starting; definitions absent locally are withdrawn.
 
-- Remove a running Bot command with `await bot.removeCommand(id)`.
+- To remove a command, omit it from the complete registry and restart with the same account/relays; startup publishes the withdrawal. Runtime additions remain supported.
 - Declare a typed argument schema in `command()` for typed arguments. Registration accepts an `authorize` callback.
 - Use Bot `allowlist` to authorize senders before persistence and handlers.
 - Use `discoverCommands()` to inspect metadata; discovery never installs handlers.

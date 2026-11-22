@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { localIdentity, localNip17Identity } from '../src/protocol.js';
 import { identityFromSigner } from '../src/signers.js';
 import { Client } from './client.js';
@@ -53,7 +54,7 @@ for(const mode of ['nip4e','nip17'] as const){
     const peer=mode==='nip17'?localNip17Identity():localIdentity();
     const client=new Client({mode,identity,relays:[remote.relay],database:':memory:',storageKey:generateSecretKey()});
     const user=new Client({mode,identity:peer,relays:[remote.relay],database:':memory:',storageKey:generateSecretKey()});
-    const bot=new Bot(client);bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]},async ctx=>{await ctx.reply('bunker pong');});let reply='';user.handle(message=>{reply=message.text;});
+    const bot=new Bot(client);bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},async ctx=>{await ctx.reply('bunker pong');});let reply='';user.handle(message=>{reply=message.text;});
     try{
       await client.announce();await user.announce();await bot.start();await user.start();
       await user.send(identity.pubkey,'/ping');await until(()=>reply!=='');await client.idle();await user.idle();assert.equal(reply,'bunker pong');

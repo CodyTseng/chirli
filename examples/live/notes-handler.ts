@@ -1,16 +1,17 @@
+import {z} from 'zod';
 import { parseCommand, type Bot, type BotCommandDefinition } from 'chirli';
 
 const rememberDefinition = {
   command: 'remember',
   title: 'Remember',
   description: 'Save a note in local DM history.',
-  args: [{ name: 'text', type: 'text', required: false, label: 'Note' }],
+  args: z.object({"text":z.string().optional().meta({label:'Note',nipcdType:'text'})}),
   scopes: ['kind:14'],
 } as const satisfies BotCommandDefinition;
 
 /** Application behavior stays independent of credentials, CLI output and signal handling. */
 export function configureNotes(bot: Bot): void {
-  bot.command({command:"help",title:"help",description:"Run /help in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => {
+  bot.command({command:"help",title:"help",description:"Run /help in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
     await ctx.reply('Commands: /remember <text>, /notes (latest 10 local notes)');
   });
 
@@ -24,7 +25,7 @@ export function configureNotes(bot: Bot): void {
     await ctx.reply(response);
   });
 
-  bot.command({command:"notes",title:"notes",description:"Run /notes in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => {
+  bot.command({command:"notes",title:"notes",description:"Run /notes in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
     const notes: string[] = [];
     let cursor: string | undefined;
 
@@ -33,7 +34,7 @@ export function configureNotes(bot: Bot): void {
       const history = ctx.history({ limit: 100, cursor });
       for (const message of history.messages) {
         if (message.direction !== 'incoming') continue;
-        const parsed = parseCommand({...rememberDefinition,id:rememberDefinition.command}, message.rumor, {
+        const parsed = parseCommand(bot.getCommandDefinitions().find(definition=>definition.command===rememberDefinition.command)!, message.rumor, {
           executor: bot.pubkey,
           relay: message.relay,
         });

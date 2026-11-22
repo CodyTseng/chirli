@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { localIdentity, localNip17Identity, type LocalIdentity as Identity } from '../src/protocol.js';
 import { Client } from './client.js';
 import { test } from 'node:test';
@@ -110,7 +111,7 @@ for (const mode of ['nip4e', 'nip17'] as const) {
       await alice.send(b.pubkey, '/ping history');
       let calls = 0, fallback = 0;
       const bot = new Bot<{ count: number }>(bob);
-      bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => {
+      bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
         calls++; ctx.session.setItem('count', (await ctx.session.getItem('count') ?? 0) + 1);
         assert.equal(ctx.history({ limit: 1 }).coverage, 'local-only');
         await ctx.reply('pong');

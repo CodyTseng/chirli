@@ -1,3 +1,4 @@
+import {z} from 'zod';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Bot, generateSecretKey, nsecSigner, type Transport } from '../src/index.js';
@@ -40,7 +41,7 @@ test('new Bot registers commands before start and publishes discovery before sub
   const fallbackMessages: string[] = [];
   peer.handle(({ message }) => { if (message.text === 'pong') replies++; });
   bot.handle(({ message }) => { fallbackMessages.push(message.text); });
-  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, async ctx => {
+  bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
     assert.equal(routedMessages.at(-1), '/ping', 'middleware runs before command routing');
     await assert.rejects(bot.close(), /inside a message handler/);
     await ctx.reply('pong');
@@ -50,8 +51,8 @@ test('new Bot registers commands before start and publishes discovery before sub
       return ctx.sender === peer.pubkey;
     },
   });
-  assert.throws(() => bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, () => {}), /Duplicate/);
-  bot.command({command:"denied",title:"denied",description:"Run /denied in a private message.",scopes:['kind:14'],args:[{name:'text',type:'text',required:false,label:'Text'}]}, () => { assert.fail('An unauthorized command must not run'); }, { authorize: () => false });
+  assert.throws(() => bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, () => {}), /Duplicate/);
+  bot.command({command:"denied",title:"denied",description:"Run /denied in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, () => { assert.fail('An unauthorized command must not run'); }, { authorize: () => false });
   bot.use(async ({ message }, next) => {
     routedMessages.push(message.text);
     await next();
