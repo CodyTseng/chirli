@@ -1,3 +1,4 @@
+import type { UploadFileResult } from './blossom.js';
 import type { Event } from 'nostr-tools';
 import { signChecked, type Identity } from './protocol.js';
 import { commandRelayURL, parseCommandHead, matchesCommandScopes, type CommandDefinition } from './nipcd.js';
@@ -224,7 +225,21 @@ export class PublicInbox {
     async reply(input: PublicInput, text: string) {
         if (typeof text !== 'string' || !text.length)
             throw new TypeError('Nonempty reply text required');
-        const root = await this.threads.rootForReply(input.event), event = await signChecked(this.identity, commentReply(input.event, root, text, input.relay));
+        const root = await this.threads.rootForReply(input.event);
+        return this.publishReply(input, commentReply(input.event, root, text, input.relay));
+    }
+    async replyFile(input: PublicInput, upload: () => Promise<UploadFileResult>) {
+        const root = await this.threads.rootForReply(input.event);
+        // Validate the reply structure before exposing any bytes to an upload endpoint.
+        const template = commentReply(input.event, root, 'attachment', input.relay);
+        const { url, mimeType, sha256, size } = await upload();
+        template.content = url;
+        template.created_at = Math.floor(Date.now() / 1000);
+        template.tags.push(['imeta', `url ${url}`, `m ${mimeType}`, `x ${sha256}`, `size ${size}`]);
+        return this.publishReply(input, template);
+    }
+    private async publishReply(input: PublicInput, template: ReturnType<typeof commentReply>) {
+        const event = await signChecked(this.identity, template);
         const relays = relayUnion(this.writes, input.relay && this.relays.includes(commandRelayURL(input.relay)) ? [input.relay] : []);
         this.state.outbox.push({ event, relays });
         try {

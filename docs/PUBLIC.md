@@ -33,6 +33,8 @@ Signatures, supported kind, structural references, sender policy, source, invoca
 
 `ctx.reply(text)` encrypts a DM when the input is private. For public inputs it signs kind 1111 with uppercase root scope and lowercase direct parent references, including mixed legacy kind 1/comment ancestry. Only the root author and direct parent author are copied. Missing/malformed legacy roots cause an error instead of a guessed attachment. An explicit modern root is preserved as declared in the signed comment; this does not prove the root's availability or truthfulness. A relay ACK means relay acceptance, never delivery or reading.
 
+`ctx.replyFile(bytes, options?)` follows the same kind-1111 threading rules. It publishes the file URL and `imeta`; the bytes are uploaded **without encryption** for public input. The same call on a DM instead uploads ciphertext and replies with a kind-15 DM. Use `bot.replyFile(ctx.input.event, bytes, options?)` for delayed replies.
+
 Public replies use configured `writeRelays` plus the configured relay that supplied the input. Untrusted relay hints in tags do not initiate contacts; automatic destination-author relay discovery is not implemented. DM send options are rejected for public replies.
 
 `ctx.session` uses separate `public:` thread keys for public input. Default storage namespaces also separate it from private peer sessions. A custom session store receives those prefixed keys and must preserve their separation and account isolation. Legacy unmarked chains may have an intermediate declared root and consequently a different session key until the application chooses a canonical key. Sessions and external side effects are not atomic with business completion.

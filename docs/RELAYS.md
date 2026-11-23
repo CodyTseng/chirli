@@ -1,4 +1,4 @@
-# DM, read and write relays
+# Relay roles
 
 Set each relay role independently. The common `relays` option supplies any role you leave unspecified.
 
@@ -17,8 +17,9 @@ await bot.start();
 | `dmRelays` | Subscribe to the inbox, recover history and provide delivery fallback | relay.psstpsst.chat, nos.lol, relay.ditto.pub |
 | `readRelays` | Add relays for metadata discovery | nos.lol, relay.primal.net, relay.ditto.pub, offchain.pub |
 | `writeRelays` | Publish commands and account metadata | Same as `readRelays` |
+| `discoveryRelays` | Extra publication targets for public account lists | nos.lol, relay.primal.net, relay.ditto.pub |
 
-Defaults are exported as `DEFAULT_DM_RELAYS`, `DEFAULT_READ_RELAYS` and `DEFAULT_WRITE_RELAYS`. The DM and write lists must be nonempty. Pass `readRelays: []` to omit that role. Discovery still queries the union of configured read, write and DM relays. The live examples map these roles to [environment variables](../examples/live/README.md).
+Defaults are exported as `DEFAULT_DM_RELAYS`, `DEFAULT_READ_RELAYS`, `DEFAULT_WRITE_RELAYS` and `DEFAULT_DISCOVERY_RELAYS`. The DM and write lists must be nonempty. Pass `readRelays: []` or `discoveryRelays: []` to omit the respective role. Peer metadata lookup still queries the union of configured read, write and DM relays. The live examples map these roles to [environment variables](../examples/live/README.md).
 
 ## Account announcements
 
@@ -27,11 +28,12 @@ Startup signs and publishes account metadata before opening the inbox.
 | Kind | Published data | Targets |
 | --- | --- | --- |
 | `10044` | Messaging key | Write and DM relays |
-| `10002` | Read and write relay roles | Write and DM relays |
-| `10050` | Inbox relay URLs | Write and DM relays |
+| `10002` | Read and write relay roles | Write + discovery relays |
+| `10050` | Inbox relay URLs | Write + discovery relays, plus DM relays |
+| `10063` | Ordered Blossom server list | Write + discovery relays |
 | `31992`, `5` | Command definitions and withdrawals | Write relays |
 
-Account metadata needs one positive ACK in each distinct write or DM set. Command synchronization requires successful queries and publication on every configured write relay. See [command synchronization](NIP-CD.md) and [messaging key configuration](KEYS.md).
+Each public list requires one positive ACK from the configured write relays. The inbox list also requires a DM ACK unless the two groups are identical. Discovery-only destinations are tried best-effort: they cannot satisfy a required ACK, do not block readiness, and are not queued for retry. URLs already covered by a required group are not tried again for discovery; discovery-only URLs are not advertised as read/write or inbox role tags. A failed required group does not stop other lists from being attempted. An unchanged configuration retries only unacknowledged groups with the original signed events. Key metadata keeps its existing separate write/DM ACK rules. Command synchronization requires successful queries and publication on every configured write relay. See [command synchronization](NIP-CD.md) and [messaging key configuration](KEYS.md).
 
 ## Readiness and delivery
 

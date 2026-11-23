@@ -1,3 +1,4 @@
+export type { ReplyFileOptions, SendFileOptions, UploadFileOptions, UploadFileResult } from './blossom.js';
 export type { MessageObserver, ErrorHandler, IntakeMetadata, SenderAllowlist, SendOptions, SendResult } from './client.js';
 export { Bot, type Context, type CommandContext, type MessageHandler, type Middleware, type Next, type BotCommandOptions, type CommandHandler, type BotOptions, type Session, type SessionStore } from './bot.js';
 export { generateSecretKey, getPublicKey, type Rumor } from './protocol.js';
@@ -12,7 +13,7 @@ export type { KeyRotationOptions, AnnounceOptions, EncryptionKeyStatus } from '.
 export type { MessageState } from './storage.js';
 export { sqliteMessageStorage, type SQLiteMessageStorage } from './message-storage-sqlite.js';
 export type { MessageStorage, MessageStorageEntry, MessageStorageQuery } from './message-storage.js';
-export { DEFAULT_DM_RELAYS, DEFAULT_READ_RELAYS, DEFAULT_WRITE_RELAYS } from './defaults.js';
+export { DEFAULT_DM_RELAYS, DEFAULT_READ_RELAYS, DEFAULT_WRITE_RELAYS, DEFAULT_DISCOVERY_RELAYS, DEFAULT_BLOSSOM_SERVERS } from './defaults.js';
 export type { MetadataCacheOptions } from './messaging-metadata.js';
 export type { KeySyncOptions } from './key-sync.js';
 

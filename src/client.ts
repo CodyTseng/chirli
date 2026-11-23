@@ -1,3 +1,4 @@
+import { encryptAttachment, normalizeBlossomDownloadOrigins, normalizeBlossomServers, snapshotFile, uploadFile, type ReplyFileOptions, type SendFileOptions, type UploadFileOptions, type UploadFileResult } from './blossom.js';
 import { PublicInbox, type PublicInboxOptions, type PublicInput } from './public-inbox.js';
 import { inputOf, threadLimit, type ThreadOptions, type ThreadResult } from './public-thread.js';
 import { allowlist as identityAllowlist, type InboundPolicy } from './inbound-policy.js';
@@ -7,7 +8,7 @@ import type { Signer } from './signer.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Store, type Message } from './store.js';
 import {localReadBoundary, WebSocketTransport, type Transport, type WebSocketTransportOptions } from './relay.js';
-import { hexKey, reactionRumor, replyTarget, rumor, timestamp, unwrapAsync, wrap, type DecodedEnvelope, type Identity, type Rumor } from './protocol.js';
+import { fileRumor, hexKey, reactionRumor, replyTarget, rumor, timestamp, unwrapAsync, wrap, type DecodedEnvelope, type Identity, type Rumor } from './protocol.js';
 import { createMessagingProtocol, protocolScope, type MessagingProtocol, type ProtocolMode } from './modes.js';
 import { InboxSubscription, type ReconnectOptions, type RecoveryOptions } from './inbox.js';
 import {
@@ -56,6 +57,9 @@ export interface CommonClientOptions {
   dmRelays?: string[];
   readRelays?: string[];
   writeRelays?: string[];
+  discoveryRelays?: readonly string[];
+  blossomServers?: readonly string[];
+  blossomDownloadOrigins?: readonly string[];
   storageKey?: Uint8Array;
   historyLimit?: number;
   database?: string;
@@ -94,7 +98,9 @@ export class Client {
   readonly options: ClientConfiguration & RelayRoles & {
     relays: string[];
   };
-  private discoveryRelays: string[];
+  private metadataLookupRelays: string[];
+  private readonly blossomServers: readonly string[];
+  private readonly blossomDownloadOrigins: ReadonlySet<string>;
   private announcements: Announcements;
   private metadata: MessagingMetadata;
   private keySync?: KeySync;
@@ -165,12 +171,14 @@ export class Client {
   private constructor(input: ClientConfiguration & { identity: Identity }) {
     const { identity, ...configuration } = input;
     const roles = relayRoles(configuration);
+    this.blossomServers = normalizeBlossomServers(configuration.blossomServers);
+    this.blossomDownloadOrigins = normalizeBlossomDownloadOrigins(configuration.blossomDownloadOrigins);
     const options = this.options = {
       ...configuration,
       ...roles,
       relays: roles.dmRelays
     };
-    this.discoveryRelays = relayUnion(roles.readRelays, roles.writeRelays, roles.dmRelays);
+    this.metadataLookupRelays = relayUnion(roles.readRelays, roles.writeRelays, roles.dmRelays);
     if (!hexKey(identity.pubkey) || !options.relays.length) {
       throw new Error('Identity and at least one relay required');
     }
@@ -198,8 +206,8 @@ export class Client {
     if ('storage' in options) throw new TypeError('Internal storage accepts only a database path; use messageStorage for messages');
     this.coreStore = new Store(options.database ?? 'psstpsst.sqlite', options.storageKey, scope, options.messageStorage);
     try {
-      this.metadata = new MessagingMetadata(this.account.pubkey, this.coreStore, this.transport, this.discoveryRelays, error => this.report(error), options.reconnect, options.metadataCache);
-      this.keys = new EncryptionKeys(this.account, this.mode, this.coreStore, this.transport, this.discoveryRelays, options.keyRotation, [options.writeRelays, options.dmRelays], this.metadata);
+      this.metadata = new MessagingMetadata(this.account.pubkey, this.coreStore, this.transport, this.metadataLookupRelays, error => this.report(error), options.reconnect, options.metadataCache);
+      this.keys = new EncryptionKeys(this.account, this.mode, this.coreStore, this.transport, this.metadataLookupRelays, options.keyRotation, [options.writeRelays, options.dmRelays], this.metadata);
       if (options.keySync !== false) {
         this.keySync = new KeySync(this.account, this.coreStore, this.transport, relayUnion(options.writeRelays, options.dmRelays), key => this.keys.exportEncryptionKey(key), () => this.coreStore.declaration(this.account.pubkey)?.tags.find(tag => tag[0] === 'n')?.[1], options.keySync);
         this.keys.setSynchronizer(key => this.keySync!.request(key));
@@ -712,6 +720,21 @@ export class Client {
     return this.replyPublic(target,text);
   }
 
+  async replyFile(event: Event | Rumor, data: Uint8Array, options: ReplyFileOptions = {}): Promise<SendResult> {
+    this.assertOpen();
+    const target = this.authenticatedInput(event);
+    if ('rumor' in target) {
+      return this.sendFile(target.conversation, data, { ...options, replyTo: target.id });
+    }
+    const { mimeType } = options;
+    const bytes = snapshotFile(data);
+    return this.publicInbox!.replyFile(target, async () => {
+      const result = await this.uploadFile(bytes, { mimeType });
+      this.assertOpen();
+      return result;
+    });
+  }
+
   async thread(event:Event|Rumor,options?:ThreadOptions):Promise<ThreadResult>{
     this.assertOpen();
     const target=this.authenticatedInput(event);
@@ -847,7 +870,8 @@ export class Client {
 
   // Discovery metadata can fail independently of inbox availability and key custody.
   private async publishMetadata() {
-    const created_at = Math.floor(Date.now() / 1000), lists = [this.options.writeRelays, this.options.dmRelays];
+    const created_at = Math.floor(Date.now() / 1000);
+    const { writeRelays, dmRelays, discoveryRelays } = this.options;
     await this.announcements.publish([
       {
         template: {
@@ -855,7 +879,7 @@ export class Client {
           created_at,
           tags: readWriteTags(this.options.readRelays, this.options.writeRelays),
           content: ''
-        }, groups: lists
+        }, groups: [writeRelays], optionalRelays: discoveryRelays
       },
       {
         template: {
@@ -863,9 +887,12 @@ export class Client {
           created_at,
           tags: this.options.dmRelays.map(url => ['relay', url]),
           content: ''
-        }, groups: lists
+        }, groups: [writeRelays, dmRelays], optionalRelays: discoveryRelays
       },
-
+      ...(this.blossomServers.length ? [{
+        template: { kind: 10063, created_at, tags: this.blossomServers.map(url => ['server', url]), content: '' },
+        groups: [writeRelays], optionalRelays: discoveryRelays,
+      }] : []),
     ]);
   }
 
@@ -917,7 +944,7 @@ export class Client {
     relays: string[];
   }> {
     this.assertOpen();
-    const metadata = await this.protocol.resolve(peer, this.coreStore, this.transport, this.discoveryRelays, true);
+    const metadata = await this.protocol.resolve(peer, this.coreStore, this.transport, this.metadataLookupRelays, true);
     return {
       encryptionPubkey: metadata.encryptionPubkey, relays: metadata.relays
     };
@@ -981,6 +1008,30 @@ export class Client {
     return this.publishPrivate(peer, r, message);
   }
 
+  async uploadFile(data: Uint8Array, options?: UploadFileOptions): Promise<UploadFileResult> {
+    this.assertOpen();
+    return uploadFile(this.account, this.blossomServers, this.blossomDownloadOrigins, data, options);
+  }
+
+  async sendFile(peer: string, data: Uint8Array, options: SendFileOptions = {}): Promise<SendResult> {
+    this.assertOpen();
+    if (!this.blossomServers.length) throw new Error('Configure blossomServers before sending files');
+    if (!hexKey(peer)) throw new TypeError('Expected a lowercase hex recipient pubkey');
+    const { replyTo } = options;
+    if (replyTo !== undefined && !hexKey(replyTo)) throw new TypeError('replyTo must be a lowercase hex message ID');
+    const { bytes, tags } = encryptAttachment(data, options);
+    await this.protocol.prepare();
+    this.assertOpen();
+    const { url, sha256, size } = await this.uploadFile(bytes);
+    this.assertOpen();
+    const r = fileRumor(this.account.pubkey, peer, url, [...tags, ['x', sha256], ['size', String(size)]], replyTo);
+    return this.publishPrivate(peer, r, {
+      id: r.id, sender: r.pubkey, conversation: peer, text: '',
+      timestamp: timestamp(r), source: 'live', direction: 'outgoing', rumor: r,
+      ...(replyTo === undefined ? {} : { replyTo }),
+    });
+  }
+
   async react(id: string, reaction = '+', peer?: string): Promise<SendResult> {
     this.assertOpen();
     if (typeof reaction !== 'string' || !reaction.trim()) {
@@ -994,7 +1045,7 @@ export class Client {
   }
 
   private async publishPrivate(peer: string, r: Rumor, message?: Message): Promise<SendResult> {
-    const recipients = await this.protocol.recipients(peer, this.coreStore, this.transport, this.discoveryRelays);
+    const recipients = await this.protocol.recipients(peer, this.coreStore, this.transport, this.metadataLookupRelays);
     const sendingIdentity = {
       ...this.account, oldEncryptionKeys: this.account.oldEncryptionKeys?.slice()
     };

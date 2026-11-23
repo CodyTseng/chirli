@@ -27,7 +27,7 @@ test('new Bot registers commands before start and publishes discovery before sub
     subscribe(relays, filter, receive) {
       if (filter.kinds?.includes(1059)) {
         inboxes++;
-        for (const kind of [10044, 10002, 10050, 31992]) assert.ok(published.has(kind), String(kind));
+        for (const kind of [10044, 10002, 10050, 10063, 31992]) assert.ok(published.has(kind), String(kind));
       }
       return wire.subscribe(relays, filter, receive);
     },

@@ -34,6 +34,9 @@ Construct the Bot and register handlers before calling `start()`. `start()` reso
 | `dmRelays` | Inbox/delivery role; nonempty |
 | `readRelays` | Metadata discovery role; `[]` is allowed |
 | `writeRelays` | Public metadata/command role; nonempty |
+| `discoveryRelays` | Extra recipients for public account announcements; `[]` disables this extra fan-out |
+| `blossomServers` | Ordered upload servers; defaults to `https://blossom.jumble.social/`; `[]` disables file uploads |
+| `blossomDownloadOrigins` | Optional trusted HTTPS origins for downloads served by a separate CDN |
 | `allowlist` | Legacy canonical identity pubkeys; omitted accepts all, `[]` denies external senders |
 | `inboundPolicy` | Optional synchronous verified-sender policy; use exported `allowlist(pubkeys)` before persistence; combines restrictively with legacy allowlist |
 | `mode` | `nip17` default, or explicit `nip4e` split messaging keys |
@@ -45,7 +48,7 @@ Construct the Bot and register handlers before calling `start()`. `start()` reso
 | `metadataCache` | Peer cache settings or false; see [relays](RELAYS.md) |
 | `keySync` | Same-identity split-key sync settings or false; see [keys](KEYS.md) |
 
-Omitted relay roles use exported `DEFAULT_DM_RELAYS`, `DEFAULT_READ_RELAYS` and `DEFAULT_WRITE_RELAYS`. The account, mode and storage codec are fixed for a Bot's lifetime. Preserve credentials, database and any storage key after restart.
+Omitted relay roles use exported `DEFAULT_DM_RELAYS`, `DEFAULT_READ_RELAYS`, `DEFAULT_WRITE_RELAYS` and `DEFAULT_DISCOVERY_RELAYS` unless overridden by the `relays` shorthand. The account, mode and storage codec are fixed for a Bot's lifetime. Preserve credentials, database and any storage key after restart.
 
 ## Lifecycle
 
@@ -101,6 +104,52 @@ A `Message` contains rumor `id`, identity `sender`, peer `conversation`, `text`,
 ## Sending and history
 
 `send(peerPubkey, nonemptyText, options?)` returns `{id, status}`, where status is `relay-accepted` or `pending`.
+
+### Upload file bytes
+
+```ts
+const { url, sha256, size, mimeType } = await bot.uploadFile(bytes, { mimeType: 'image/png' });
+```
+
+`uploadFile(bytes, options?)` uploads the supplied bytes as-is, without encryption, to the first configured Blossom server that accepts them. If the bytes are plaintext, people who can access the blob URL can read them. Callers can encrypt bytes themselves before uploading. Pass `mimeType` for the uploaded bytes, or omit it to use `application/octet-stream`. The result contains the verified URL, SHA-256, byte count and MIME sent in the request. The URL must end in the blob hash, with an optional extension, and use the accepting server’s origin or an explicit `blossomDownloadOrigins` entry. This upload does not send any Nostr message or publish a note; callers can use the result to build a public note with an `imeta` tag.
+
+### Send a private file
+
+Pass the file bytes, not a URL or a path. Configure the servers when constructing the bot:
+
+```ts
+import { readFile } from 'node:fs/promises';
+import { Bot } from 'chirli';
+
+const bot = new Bot({ signer, blossomServers: ['https://files.example.com'] });
+await bot.start();
+const result = await bot.sendFile(peerPubkey, await readFile('report.pdf'), {
+  name: 'report.pdf',
+  mimeType: 'application/pdf',
+});
+```
+
+`sendFile(peerPubkey, bytes, options?)` accepts a nonempty `Uint8Array` (including a Node.js `Buffer`) up to an encrypted upload size of 64 MiB. It encrypts first, then uses the same `uploadFile()` path. The optional `name`, `mimeType` (default `application/octet-stream`) and `replyTo` stay inside the encrypted attachment message. Like `send()`, it returns the message ID and `relay-accepted` or `pending` after an upload succeeds. The relay outbox retries the same encrypted message without uploading again; if all uploads fail, the call rejects and queues no message. A successful upload can remain on the server if the later message send fails.
+
+By default Chirli uses the exported `DEFAULT_BLOSSOM_SERVERS` list. An explicit list replaces it entirely. `start()` and `announce()` publish the ordered BUD-03 kind 10063 list to `writeRelays` and `discoveryRelays`, not to DM-only relays. With `blossomServers: []`, Chirli publishes no Blossom list and does not clear an existing public list. Use HTTPS URLs with no credentials, query or fragment. Explicit HTTP loopback URLs are allowed for development. Chirli tries only the configured servers, in order. After the first upload succeeds, it tries BUD-04 mirroring concurrently on the remaining configured servers. Mirrors are best-effort: failures do not change the successful upload result. Mirror requests reuse the successful upload authorization and have a 10-second HTTP timeout. The authorization is restricted to configured server hostnames; mirrors never ask the signer to sign again. No unconfigured server is used.
+
+The server receives ciphertext, ciphertext size/hash and a signed upload authorization identifying the bot. The recipient gets the URL and decryption metadata inside a NIP-17 kind-15 gift wrap. Chirli stores outgoing file metadata in local message history like other messages; use `storageKey` (and an appropriate custom store, if configured) to protect it at rest. This API sends private files only. Incoming file handling and downloading are not provided.
+
+See [NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md) and [Blossom server lists](https://github.com/hzrd149/blossom/blob/master/buds/03.md).
+
+### Reply with a private or public file
+
+```ts
+await ctx.replyFile(bytes, { mimeType: 'image/png', name: 'report.png' });
+await bot.replyFile(event, bytes, { mimeType: 'image/png' }); // Outside the handler.
+```
+
+`bot.replyFile` takes the same original `ctx.input.event` as `bot.reply`, not an event ID. Both forms return the normal send result. The anchor decides the visibility:
+
+- Authenticated kind-14 DM: encrypt the bytes and send a kind-15 DM with a reference to the triggering rumor. The optional filename is inside the encrypted message.
+- Signed kind 1/1111: **upload the supplied bytes as-is and publicly post the URL**. The reply is kind 1111 with the same root, parent and relay routing as `reply()`, plus an `imeta` tag. The DM filename option is ignored on this path. Only use this form with bytes you intend to publish.
+
+For a new top-level public note rather than a reply, `uploadFile()` supplies the blob metadata; Chirli does not create the kind-1 note.
 
 ### Replies and references
 

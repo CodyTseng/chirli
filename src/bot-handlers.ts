@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import type { ReplyFileOptions } from './blossom.js';
 import {markDeferredRequestFailure} from './request-timing.js';
 import {commandArguments} from './command-schema.js';
 import {InvalidArgsError} from './errors.js';
@@ -19,6 +20,8 @@ export interface Context<S = Record<string, unknown>> {
   sender: string;
   conversation: string;
   reply(text: string, options?: SendOptions): ReturnType<Client['send']> | ReturnType<Client['replyPublic']>;
+  /** Attach a file using the visibility of the triggering event. */
+  replyFile(data: Uint8Array, options?: ReplyFileOptions): ReturnType<Client['replyFile']>;
   /** React to the current message or another message in this conversation. */
   react(reaction?: string, messageId?: string): ReturnType<Client['react']>;
   /** Look up a locally stored message in this conversation. */
@@ -200,6 +203,7 @@ export class BotHandlers<S = Record<string, unknown>> {
       sender: message.sender,
       conversation: message.conversation,
       reply: (text, options) => client.reply(anchor,text,options),
+      replyFile: (data, options) => client.replyFile(anchor, data, options),
       react: (reaction, id = message.id) => client.react(id, reaction, message.conversation),
       getMessage: id => client.getMessage(id, message.conversation),
       history: options => client.history(message.conversation, options)
@@ -216,6 +220,7 @@ export class BotHandlers<S = Record<string, unknown>> {
     const ctx:Context<S>={input:inputOf(input.event),sender:input.event.pubkey,conversation:input.conversation,session,
       get message(){return privateOnly();},
       reply:(text,options)=>client.reply(anchor,text,options),
+      replyFile:(data,options)=>client.replyFile(anchor,data,options),
       thread:options=>client.thread(anchor,options),react:privateOnly,getMessage:privateOnly,history:privateOnly};
     return this.dispatch(client,ctx,commit,input.event,input.relay);
   }

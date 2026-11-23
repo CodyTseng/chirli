@@ -1,6 +1,6 @@
 # Chirli
 
-A TypeScript SDK for Nostr bots with private messages, public note/comment commands, middleware and persistent sessions.
+A TypeScript SDK for Nostr bots with private messages and file attachments, public note/comment commands, middleware and persistent sessions.
 
 **Node.js 24+ · ESM · Experimental · Not yet published to npm**
 
@@ -229,7 +229,7 @@ Start with the [first bot tutorial](docs/TUTORIAL.md) for a step-by-step path fr
 | [Contributing](CONTRIBUTING.md) | Development and validation expectations |
 | [Security](SECURITY.md) | Trust boundaries and known limitations |
 
-Chirli supports one-to-one private text, reply references, sending reactions, and explicitly scoped kind 1/1111 public commands. See [public inputs and threads](docs/PUBLIC.md). Groups, attachments, full archive recovery and exactly-once external effects are outside its scope. One active Bot/process per account database is supported. Public relays, external signer products and production deployments require separate validation.
+Chirli supports one-to-one private text, reply references, sending reactions, and explicitly scoped kind 1/1111 public commands. See [public inputs and threads](docs/PUBLIC.md). Groups, receiving or downloading attachments, full archive recovery and exactly-once external effects are outside its scope. One active Bot/process per account database is supported. Public relays, external signer products and production deployments require separate validation.
 
 Bot command identifiers come from their command names; custom `id` parameters are rejected. Renaming a command removes the old coordinate and adds the new one. Startup compares one broad author-scoped kind 31992 scan per write relay with the complete local registry; runtime additions synchronize automatically. Remote kind 5 queries belong to independent discovery, while locally pending withdrawals remain durable. See [command lifecycle and upgrade behavior](docs/NIP-CD.md).
 

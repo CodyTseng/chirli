@@ -76,9 +76,14 @@ export function reactionRumor(identity: string, peer: string, target: string, re
   return dmRumor(7, identity, peer, reaction, Date.now(), target);
 }
 
-function dmRumor(kind: 7 | 14, identity: string, peer: string, content: string, now: number, reference?: string): Rumor {
+export function fileRumor(identity: string, peer: string, url: string, fileTags: string[][], reference?: string): Rumor {
+  return dmRumor(15, identity, peer, url, Date.now(), reference, fileTags);
+}
+
+function dmRumor(kind: 7 | 14 | 15, identity: string, peer: string, content: string, now: number, reference?: string, extraTags: string[][] = []): Rumor {
   const tags = [['p', peer], ['ms', String(now % 1000)], ['nonce', Buffer.from(generateSecretKey()).toString('hex')]];
   if (reference !== undefined) tags.push(['e', reference]);
+  tags.push(...extraTags);
 
   const r = {
     pubkey: identity,

@@ -97,7 +97,7 @@ Optional CHIRLI_LEGACY_MAX_DAYS limits retirement age. Current/legacy split secr
 
 ## Runtime and troubleshooting
 
-Startup announces 10044 key metadata, 10002 read/write roles, 10050 DM inboxes and registered public command definitions (31992). Commands publish only to write relays; keys publish to write and DM relays. Historical/self-copy messages do not run handlers. An application-owned timer retries pending announcements and exact pending outbox rows every 30 seconds (CHIRLI_OUTBOX_RETRY_MS, minimum 1000). This is not recipient delivery/read confirmation. SIGINT/SIGTERM drain current work and close storage/signer.
+Startup announces 10044 key metadata, 10002 read/write roles, 10050 DM inboxes, 10063 Blossom servers and registered public command definitions (31992). See the [publication targets](../../docs/RELAYS.md#account-announcements). Historical/self-copy messages do not run handlers. An application-owned timer retries pending announcements and exact pending outbox rows every 30 seconds (CHIRLI_OUTBOX_RETRY_MS, minimum 1000). This is not recipient delivery/read confirmation. SIGINT/SIGTERM drain current work and close storage/signer.
 
 If no reply arrives, check the printed identity, allowlist, sender's 10050 inbox list, reachable relays and signer permissions. Only a public key is logged even when startup fails; secrets/message text are not logged. `node dist/examples/live/commands.js --help` describes usage without loading a config or connecting.
 
@@ -117,9 +117,9 @@ If startup exits, diagnostics use its failing phase, such as `[error][startup]`,
 
 ## Separate relay roles
 
-Optional `CHIRLI_DM_RELAYS`, `CHIRLI_READ_RELAYS`, `CHIRLI_WRITE_RELAYS` override each role independently (comma-separated URLs). `CHIRLI_RELAYS` is a common-list shorthand for omitted roles. With no settings, DM uses the three defaults above; read/write each use `wss://nos.lol/,wss://relay.primal.net/,wss://relay.ditto.pub/,wss://offchain.pub/`, matching PsstPsst's role fallback. Empty explicit read allows no read role; DM/write cannot be empty.
+Optional `CHIRLI_DM_RELAYS`, `CHIRLI_READ_RELAYS`, `CHIRLI_WRITE_RELAYS`, `CHIRLI_DISCOVERY_RELAYS` override each role independently (comma-separated URLs). `CHIRLI_RELAYS` is a common-list shorthand for omitted roles. With no settings, DM uses the three defaults above; read/write each use `wss://nos.lol/,wss://relay.primal.net/,wss://relay.ditto.pub/,wss://offchain.pub/`, matching PsstPsst's role fallback. The discovery role defaults to `wss://nos.lol/,wss://relay.primal.net/,wss://relay.ditto.pub/`. An explicit empty read or discovery list disables that role; DM/write cannot be empty.
 
-`bot:init` also accepts `--dm-relays`, `--read-relays`, `--write-relays` (or common `--relays`); it writes all three resolved roles without contacting them. Public command declarations include their full metadata/scopes. All Bot command definitions are public. Put unadvertised application behavior in ordinary middleware or Bot.handle instead of registering a command. Publication requires one ACK per distinct write/DM target set and may partially succeed; it is not atomic or proof of indexing/delivery. See [relay roles and retry](../../docs/RELAYS.md).
+`bot:init` also accepts `--dm-relays`, `--read-relays`, `--write-relays` (or common `--relays`); it writes all three resolved roles without contacting them. Public command declarations include their full metadata/scopes. All Bot command definitions are public. Put unadvertised application behavior in ordinary middleware or Bot.handle instead of registering a command. Publication can partially succeed; it is not atomic or proof of indexing/delivery. See [relay roles and retry](../../docs/RELAYS.md).
 
 Established inbox connections recover transient disconnects silently for up to 30 seconds. A continuously unresolved network outage then emits one warning until recovery; repeated retries do not repeat it. Initial connection failures, disabled reconnect, authentication/subscription rejection, incomplete history, storage and handler failures remain observable. Stop cancels delayed warnings.
 

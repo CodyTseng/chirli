@@ -1,3 +1,4 @@
+import type { ReplyFileOptions, SendFileOptions, UploadFileOptions } from './blossom.js';
 import type { SessionStore } from './session.js';
 import { Client, type ClientOptions, type ErrorHandler, type IntakeMetadata, type SendOptions, type MessageObserver } from './client.js';
 import { BotHandlers, type Middleware } from './bot-handlers.js';
@@ -34,6 +35,9 @@ export class Bot<S = Record<string, unknown>> {
       dmRelays: options.dmRelays?.slice(),
       readRelays: options.readRelays?.slice(),
       writeRelays: options.writeRelays?.slice(),
+      discoveryRelays: options.discoveryRelays?.slice(),
+      blossomServers: options.blossomServers?.slice(),
+      blossomDownloadOrigins: options.blossomDownloadOrigins?.slice(),
       publicInbox: options.publicInbox ? { ...options.publicInbox, relays: options.publicInbox.relays.slice(), thread: options.publicInbox.thread ? {...options.publicInbox.thread} : undefined } : undefined,
       allowlist: options.allowlist?.slice(),
       storageKey: options.storageKey?.slice(),
@@ -133,8 +137,11 @@ export class Bot<S = Record<string, unknown>> {
   requestStop() { this.#generation++; this.#ready().requestStop(); }
   async announce(options?: AnnounceOptions) { await (await this.#open()).announce(options); }
   async reply(event:Event|Rumor,text:string,options?:SendOptions){return this.#ready().reply(event,text,options);}
+  async replyFile(event: Event | Rumor, data: Uint8Array, options?: ReplyFileOptions) { return this.#ready().replyFile(event, data, options); }
   async thread(event:Event|Rumor,options?:ThreadOptions){return this.#ready().thread(event,options);}
   send(peer: string, text: string, options?: SendOptions) { return this.#ready().send(peer, text, options); }
+  uploadFile(data: Uint8Array, options?: UploadFileOptions) { return this.#ready().uploadFile(data, options); }
+  sendFile(peer: string, data: Uint8Array, options?: SendFileOptions) { return this.#ready().sendFile(peer, data, options); }
   history(peer: string, options?: { limit?: number; cursor?: string }) { return this.#ready().history(peer, options); }
   react(messageId: string, reaction?: string) { return this.#ready().react(messageId, reaction); }
   getMessage(id: string): Message | undefined { return this.#ready().getMessage(id); }

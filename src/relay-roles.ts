@@ -1,10 +1,11 @@
-import { DEFAULT_DM_RELAYS, DEFAULT_READ_RELAYS, DEFAULT_WRITE_RELAYS } from './defaults.js';
+import { DEFAULT_DISCOVERY_RELAYS, DEFAULT_DM_RELAYS, DEFAULT_READ_RELAYS, DEFAULT_WRITE_RELAYS } from './defaults.js';
 import { websocketURL } from './metadata.js';
 
 export interface RelayRoles {
   dmRelays: string[];
   readRelays: string[];
   writeRelays: string[];
+  discoveryRelays: string[];
 }
 
 export function relayUnion(...groups: readonly string[][]): string[] {
@@ -23,8 +24,9 @@ export function relayRoles(input: {
   dmRelays?: string[];
   readRelays?: string[];
   writeRelays?: string[];
+  discoveryRelays?: readonly string[];
 }): RelayRoles {
-  const list = (value: string[] | undefined, fallback: readonly string[], name: string, empty = false) => {
+  const list = (value: readonly string[] | undefined, fallback: readonly string[], name: string, empty = false) => {
     if (value !== undefined && (!Array.isArray(value) || (!empty && !value.length) || !Array.from(value).every(websocketURL))) {
       throw new TypeError(`${name} must be ${empty ? 'an' : 'a nonempty'} array of WebSocket URLs`);
     }
@@ -36,7 +38,8 @@ export function relayRoles(input: {
   return {
     dmRelays: list(input.dmRelays ?? input.relays, DEFAULT_DM_RELAYS, 'dmRelays'),
     readRelays: list(input.readRelays ?? input.relays, DEFAULT_READ_RELAYS, 'readRelays', true),
-    writeRelays: list(input.writeRelays ?? input.relays, DEFAULT_WRITE_RELAYS, 'writeRelays')
+    writeRelays: list(input.writeRelays ?? input.relays, DEFAULT_WRITE_RELAYS, 'writeRelays'),
+    discoveryRelays: list(input.discoveryRelays ?? input.relays, DEFAULT_DISCOVERY_RELAYS, 'discoveryRelays', true)
   };
 }
 

@@ -21,7 +21,7 @@ try {
   const [manifest] = JSON.parse(output);
   assert.equal(manifest.name, 'chirli');
   const files = manifest.files.map(file => file.path);
-  for (const required of ['dist/index.js', 'dist/announcements.js', 'dist/commands.js', 'dist/command-discovery.js', 'dist/relay-roles.js', 'dist/index.d.ts', 'dist/modes.js', 'dist/inbox.js', 'dist/signers.js', 'dist/signer.js', 'dist/signers/nsec.js', 'dist/signers/bunker.js', 'dist/nipcd.js', 'dist/public-inbox.js', 'dist/public-thread.js', 'docs/PUBLIC.md', 'dist/keys.js', 'dist/defaults.js', 'dist/storage.js', 'dist/storage-sqlite.js', 'dist/message-storage.js', 'dist/message-storage-sqlite.js', 'dist/examples/local.js', 'dist/examples/protocol-modes.js', 'examples/README.md', 'dist/examples/live/commands.js', 'dist/examples/live/ready.js', 'dist/examples/live/notes-handler.js', 'examples/live/README.md', 'docs/API.md', 'docs/TUTORIAL.md', 'docs/SESSIONS.md', 'LICENSE', 'SECURITY.md', 'CONTRIBUTING.md']) {
+  for (const required of ['dist/index.js', 'dist/blossom.js', 'dist/announcements.js', 'dist/commands.js', 'dist/command-discovery.js', 'dist/relay-roles.js', 'dist/index.d.ts', 'dist/modes.js', 'dist/inbox.js', 'dist/signers.js', 'dist/signer.js', 'dist/signers/nsec.js', 'dist/signers/bunker.js', 'dist/nipcd.js', 'dist/public-inbox.js', 'dist/public-thread.js', 'docs/PUBLIC.md', 'dist/keys.js', 'dist/defaults.js', 'dist/storage.js', 'dist/storage-sqlite.js', 'dist/message-storage.js', 'dist/message-storage-sqlite.js', 'dist/examples/local.js', 'dist/examples/protocol-modes.js', 'examples/README.md', 'dist/examples/live/commands.js', 'dist/examples/live/ready.js', 'dist/examples/live/notes-handler.js', 'examples/live/README.md', 'docs/API.md', 'docs/TUTORIAL.md', 'docs/SESSIONS.md', 'LICENSE', 'SECURITY.md', 'CONTRIBUTING.md']) {
     assert.ok(files.includes(required), `Missing package file: ${required}`);
   }
   for (const file of files) {
@@ -69,9 +69,20 @@ await assert.rejects(import('chirli/src/client.js'), {code:'ERR_PACKAGE_PATH_NOT
   run(process.execPath, ['consumer.mjs'], consumer);
   await writeFile(join(consumer, 'consumer.ts'), `
 import {z} from 'zod';
-import { allowlist as inboundAllowlist, requestTiming, Bot, nsecSigner, generateSecretKey, type Context, type ProtocolMode, type Transport, type HistoryPage, type HistorySyncResult, type Signer, type BotCommandDefinition, type KeyRotationOptions, type EncryptionKeyStatus, sqliteMessageStorage, type MessageStorage, type SenderAllowlist, DEFAULT_DM_RELAYS, RelayError, type RelayErrorCode, type MetadataCacheOptions, type KeySyncOptions } from 'chirli';
+import { allowlist as inboundAllowlist, requestTiming, Bot, nsecSigner, generateSecretKey, type Context, type ProtocolMode, type Transport, type HistoryPage, type HistorySyncResult, type Signer, type ReplyFileOptions, type SendFileOptions, type UploadFileOptions, type UploadFileResult, type SendResult, type BotCommandDefinition, type KeyRotationOptions, type EncryptionKeyStatus, sqliteMessageStorage, type MessageStorage, type SenderAllowlist, DEFAULT_DM_RELAYS, RelayError, type RelayErrorCode, type MetadataCacheOptions, type KeySyncOptions } from 'chirli';
 const metadataCache:MetadataCacheOptions={ttlMs:600000,negativeTtlMs:30000,maxStaleMs:86400000,maxEntries:512};
 const keySync:KeySyncOptions={timeoutMs:30000};
+const sendFileOptions: SendFileOptions = {name:'report.pdf',mimeType:'application/pdf'};
+const sendFile = (bot: Bot, peer: string): Promise<SendResult> =>
+  bot.sendFile(peer, new Uint8Array([1]), sendFileOptions);
+const uploadOptions: UploadFileOptions = {mimeType:'image/png'};
+const uploadFile = (bot: Bot): Promise<UploadFileResult> =>
+  bot.uploadFile(new Uint8Array([1]), uploadOptions);
+const replyOptions: ReplyFileOptions = {mimeType:'image/png'};
+const replyFile = (bot: Bot, ctx: Context): [Promise<SendResult>, Promise<SendResult>] => [
+  ctx.replyFile(new Uint8Array([1]), replyOptions),
+  bot.replyFile(ctx.input.event, new Uint8Array([1]), replyOptions),
+];
 const relayCode:RelayErrorCode='RELAY_CONNECT_TIMEOUT';
 const safeError=new RelayError('Relay connection timeout',{relay:'wss://relay.invalid/private?token=hidden',operation:'connect',code:relayCode});
 const defaults:readonly string[]=DEFAULT_DM_RELAYS;

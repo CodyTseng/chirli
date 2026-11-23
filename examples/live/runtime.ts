@@ -88,6 +88,7 @@ See examples/live/README.md for persistent keys, bunker, allowlist and relay set
       dmRelays: config.relays,
       readRelays: config.readRelays,
       writeRelays: config.writeRelays,
+      discoveryRelays: config.discoveryRelays,
       allowlist: config.allowlist,
       keySync: config.keySync,
     });

@@ -27,7 +27,8 @@
 # CHIRLI_DM_RELAYS=wss://inbox-one.example,wss://inbox-two.example
 # CHIRLI_READ_RELAYS=wss://read-one.example,wss://read-two.example
 # CHIRLI_WRITE_RELAYS=wss://write-one.example,wss://write-two.example
-# Commands publish to write; keys and relay lists publish to write + DM.
+# CHIRLI_DISCOVERY_RELAYS=wss://discovery.example
+# Set CHIRLI_DISCOVERY_RELAYS= to disable the extra announcements.
 
 # Temporary latency diagnosis; no message text, authors, event IDs or credentials:
 # CHIRLI_TIMING=1

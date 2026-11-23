@@ -92,7 +92,7 @@ test('no automatic key publication on lifecycle; matching/fresh declarations are
  const identity=localNip17Identity(),fixture=simulated(()=>[]),client=new Client({mode:'nip17',identity,relays:['ws://metadata.invalid'],transport:fixture.transport,recovery:false,database:':memory:',storageKey:generateSecretKey()});
  try{
   await client.start();assert.equal(fixture.published.length,0);await client.stop();
-  await client.announce();assert.deepEqual(fixture.published.map(event=>event.kind),[10044,10002,10050]);assert.deepEqual(fixture.published[0].tags,[['n',identity.pubkey]]);
+  await client.announce();assert.deepEqual(fixture.published.map(event=>event.kind),[10044,10002,10050,10063]);assert.deepEqual(fixture.published[0].tags,[['n',identity.pubkey]]);
   await client.announce();assert.equal(new Set(fixture.published.filter(event=>event.kind===10044).map(event=>event.id)).size,1);
  }finally{await client.close();}
 });
@@ -114,15 +114,15 @@ test('conflict evidence survives restart and incomplete later relay views; owner
  const options={mode:'nip17' as const,identity,storageKey,relays:['ws://metadata.invalid'],database:join(dir,'inbox.sqlite'),transport:fixture.transport};let client=new Client(options);
  try{
   await assert.rejects(client.announce(),Nip4eCompatibilityError);await client.close();view=[];client=new Client(options);await assert.rejects(client.announce(),Nip4eCompatibilityError);assert.equal(fixture.published.length,0);
-  view=[await identity.sign({kind:10044,created_at:11,tags:[['n',identity.pubkey]],content:''})];await client.refreshPeer(identity.pubkey);await client.announce();assert.deepEqual(fixture.published.map(event=>event.kind),[10044,10002,10050]);
-  view=[await identity.sign({kind:10044,created_at:12,tags:[['n',other]],content:''})];await client.refreshPeer(identity.pubkey);await assert.rejects(client.announce(),Nip4eCompatibilityError);assert.equal(fixture.published.length,3);
+  view=[await identity.sign({kind:10044,created_at:11,tags:[['n',identity.pubkey]],content:''})];await client.refreshPeer(identity.pubkey);await client.announce();assert.deepEqual(fixture.published.map(event=>event.kind),[10044,10002,10050,10063]);
+  view=[await identity.sign({kind:10044,created_at:12,tags:[['n',other]],content:''})];await client.refreshPeer(identity.pubkey);await assert.rejects(client.announce(),Nip4eCompatibilityError);assert.equal(fixture.published.length,4);
  }finally{await client.close();await rm(dir,{recursive:true,force:true});}
 });
 test('failed self lookup is not treated as permission to claim a new key, while the legacy false option suppresses publication without disabling dual intake',async()=>{
  const identity=localNip17Identity(),fixture=simulated(()=>{throw new Error('offline');}),client=new Client({mode:'nip17',identity,relays:['ws://metadata.invalid'],transport:fixture.transport,database:':memory:',storageKey:generateSecretKey()});
  try{await assert.rejects(client.announce(),/offline/);assert.equal(fixture.published.length,0);}finally{await client.close();}
  const strictFixture=simulated(()=>[]),strict=new Client({mode:'nip17',nip4eCompatibility:false,identity,relays:['ws://metadata.invalid'],transport:strictFixture.transport,database:':memory:',storageKey:generateSecretKey()});
- try{await strict.announce();assert.deepEqual(strictFixture.published.map(event=>event.kind),[10002,10050]);assert.ok(strictFixture.filters.some(filter=>filter.kinds?.includes(10044)));}finally{await strict.close();}
+ try{await strict.announce();assert.deepEqual(strictFixture.published.map(event=>event.kind),[10002,10050,10063]);assert.ok(strictFixture.filters.some(filter=>filter.kinds?.includes(10044)));}finally{await strict.close();}
 });
 test('forged declarations cannot select keys and pending outbox cannot override a later own-key conflict',async()=>{
  const identity=localNip17Identity(),other=localIdentity(),original=await identity.sign({kind:10044,created_at:10,tags:[['n',other.pubkey]],content:''});
