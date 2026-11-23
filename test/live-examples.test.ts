@@ -21,19 +21,54 @@ function launch(profile:string,file:string){
  const child=spawn(process.execPath,[`--env-file=${file}`,entry(profile)],{cwd:root,env:cleanEnv,stdio:['ignore','pipe','pipe']});let output='';child.stdout!.on('data',data=>{output+=String(data);});child.stderr!.on('data',data=>{output+=String(data);});let failed:Error|undefined;child.on('error',error=>{failed=error;});
  return{child,get output(){return output;},async ready(){await until(()=>!!failed||child.exitCode!==null||output.includes(`Chirli ${profile} ready`),()=>output);if(failed)throw failed;assert.equal(child.exitCode,null,output);assert.ok(output.includes(`Chirli ${profile} ready`),output);}};
 }
-async function stop(child:ChildProcess){if(child.exitCode!==null)return;child.kill('SIGTERM');try{await until(()=>child.exitCode!==null||child.signalCode!==null,()=>`PID ${child.pid}`,300);}catch(error){child.kill('SIGKILL');throw error;}assert.equal(child.exitCode,0,'SIGTERM must drain and exit cleanly');}
+async function stop(child:ChildProcess){
+ if(child.pid===undefined||child.exitCode!==null||child.signalCode!==null)return;
+ const exited=()=>child.exitCode!==null||child.signalCode!==null,details=()=>`PID ${child.pid}`;
+ child.kill('SIGTERM');
+ try{await until(exited,details,300);}catch(error){
+  child.kill('SIGKILL');
+  await until(exited,details,100).catch(()=>{}); // Preserve the original shutdown timeout.
+  throw error;
+ }
+ assert.equal(child.exitCode,0,'SIGTERM must drain and exit cleanly');
+}
 async function fixture(profile:string,mode:'nip17'|'nip4e'='nip17',partialFailure=false){
- const relay=await testRelay(),directory=await mkdtemp(join(tmpdir(),'chirli-live-')),file=join(directory,'.env.bot'),database=join(directory,'bot.sqlite'),identity=localNip17Identity();
- // An unavailable DM replica is tolerated; command write relays must remain available.
- let relayList=relay.url;if(partialFailure){const probe=createServer();await new Promise<void>(r=>probe.listen(0,'127.0.0.1',r));const port=(probe.address() as {port:number}).port;await new Promise<void>(r=>probe.close(()=>r()));relayList+=`,ws://127.0.0.1:${port}`;}
- const setup=spawnSync(process.execPath,[entry('setup'),'--dm-relays',relayList,'--read-relays',relay.url,'--write-relays',relay.url,'--file',file,'--database',database,'--allow',identity.pubkey,'--mode',mode],{cwd:root,env:cleanEnv,encoding:'utf8'});assert.equal(setup.status,0,setup.stdout+setup.stderr);
- if(profile==='commands')await appendFile(file,'\nCHIRLI_TIMING=1\n');
- const ownGenerated=parseEnv(await readFile(file,'utf8')); // Only this test's newly generated credentials.
- assert.ok(!setup.stdout.includes(ownGenerated.CHIRLI_NSEC!));assert.ok(!setup.stdout.includes(ownGenerated.CHIRLI_STORAGE_KEY!));assert.equal((await stat(file)).mode&0o777,0o600);
- const botPubkey=setup.stdout.match(/Bot identity: ([0-9a-f]{64})/)![1];
- const peer=new Client({identity,relays:[relay.url],database:':memory:',storageKey:generateSecretKey()}),replies:Message[]=[];peer.handle(m=>{replies.push(m);});await peer.announce();await peer.start();
- let runner=launch(profile,file);try{await runner.ready();}catch(error){try{await stop(runner.child);}catch{}await peer.close();await relay.close();await rm(directory,{recursive:true,force:true});throw error;}
- return{relay,peer,replies,file,botPubkey,ownGenerated,get output(){return runner.output;},async restart(){await stop(runner.child);runner=launch(profile,file);await runner.ready();},async request(text:string){const count=replies.length;const result=await peer.send(botPubkey,text);assert.equal(result.status,'relay-accepted');await until(()=>replies.length>count,()=>runner.output);return replies[count].text;},async close(){await stop(runner.child);await peer.close();await relay.close();await rm(directory,{recursive:true,force:true});}};
+ const cleanup:(()=>Promise<void>)[]=[];
+ const close=async()=>{
+  const errors:unknown[]=[];
+  // A failed SIGTERM assertion must not leave a loopback server open.
+  for(let dispose=cleanup.pop();dispose;dispose=cleanup.pop()){
+   try{await dispose();}catch(error){errors.push(error);}
+  }
+  if(errors.length===1)throw errors[0];
+  if(errors.length>1)throw new AggregateError(errors,'Live fixture cleanup failed');
+ };
+ try{
+  const directory=await mkdtemp(join(tmpdir(),'chirli-live-'));
+  cleanup.push(()=>rm(directory,{recursive:true,force:true}));
+  const relay=await testRelay(),file=join(directory,'.env.bot'),database=join(directory,'bot.sqlite'),identity=localNip17Identity();
+  cleanup.push(()=>relay.close());
+  // An unavailable DM replica is tolerated; command write relays must remain available.
+  let relayList=relay.url;if(partialFailure){const probe=createServer();await new Promise<void>((resolve,reject)=>probe.once('error',reject).listen(0,'127.0.0.1',resolve));const port=(probe.address() as {port:number}).port;await new Promise<void>((resolve,reject)=>probe.close(error=>error?reject(error):resolve()));relayList+=`,ws://127.0.0.1:${port}`;}
+  const setup=spawnSync(process.execPath,[entry('setup'),'--relays',relay.url,'--dm-relays',relayList,'--file',file,'--database',database,'--allow',identity.pubkey,'--mode',mode],{cwd:root,env:cleanEnv,encoding:'utf8'});assert.equal(setup.status,0,setup.stdout+setup.stderr);
+  if(profile==='commands')await appendFile(file,'\nCHIRLI_TIMING=1\n');
+  const ownGenerated=parseEnv(await readFile(file,'utf8')); // Only this test's newly generated credentials.
+  assert.ok(!setup.stdout.includes(ownGenerated.CHIRLI_NSEC!));assert.ok(!setup.stdout.includes(ownGenerated.CHIRLI_STORAGE_KEY!));assert.equal((await stat(file)).mode&0o777,0o600);
+  const roles=configuration(ownGenerated);
+  assert.deepEqual(roles.relays,relayList.split(','));
+  for(const relays of [roles.readRelays,roles.writeRelays,roles.discoveryRelays])assert.deepEqual(relays,[relay.url]);
+  const botPubkey=setup.stdout.match(/Bot identity: ([0-9a-f]{64})/)![1];
+  const peer=new Client({identity,relays:[relay.url],database:':memory:',storageKey:generateSecretKey()}),replies:Message[]=[];
+  cleanup.push(()=>peer.close());
+  peer.handle(m=>{replies.push(m);});await peer.announce();await peer.start();
+  let runner=launch(profile,file);
+  cleanup.push(()=>stop(runner.child));
+  await runner.ready();
+  return{relay,peer,replies,file,botPubkey,ownGenerated,get output(){return runner.output;},async restart(){await stop(runner.child);runner=launch(profile,file);await runner.ready();},async request(text:string){const count=replies.length;const result=await peer.send(botPubkey,text);assert.equal(result.status,'relay-accepted');await until(()=>replies.length>count,()=>runner.output);return replies[count].text;},close};
+ }catch(error){
+  try{await close();}catch(cleanupError){throw new AggregateError([error,cleanupError],'Live fixture setup and cleanup failed');}
+  throw error;
+ }
 }
 
 test('live config supplies defaults without credentials, distinguishes absent/empty allowlist and validates rotation',()=>{
@@ -52,17 +87,39 @@ test('setup never overwrites an existing identity; packaged live help needs no c
  try{
   for(const name of ['setup','commands','echo','session','notes']){const result=spawnSync(process.execPath,[entry(name),'--help'],{cwd:root,env:cleanEnv,encoding:'utf8'});assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/bot/);}
   const args=[entry('setup'),'--relays','wss://not-contacted.invalid','--file',file];const first=spawnSync(process.execPath,args,{cwd:root,env:cleanEnv,encoding:'utf8'});assert.equal(first.status,0,first.stderr);const bytes=await readFile(file);
+  assert.deepEqual(configuration(parseEnv(bytes.toString())).discoveryRelays,['wss://not-contacted.invalid']);
   const second=spawnSync(process.execPath,args,{cwd:root,env:cleanEnv,encoding:'utf8'});assert.equal(second.status,1);assert.match(second.stderr,/already exists/);assert.deepEqual(await readFile(file),bytes);
  }finally{await rm(directory,{recursive:true,force:true});}
 });
 
-test('actual commands runner stays alive, enforces allowlist, uses split mode and exits on SIGTERM',async()=>{
- const demo=await fixture('commands','nip4e'),other=new Client({identity:localNip17Identity(),relays:[demo.relay.url],database:':memory:',storageKey:generateSecretKey()});let deniedReplies=0;other.handle(()=>{deniedReplies++;});
+test('setup round-trips explicit discovery relay overrides, including an empty list',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'chirli-discovery-'));
  try{
-  await other.announce();await other.start();await other.send(demo.botPubkey,'/ping');assert.equal(await demo.request('/ping'),'pong');assert.match(await demo.request('/whoami'),new RegExp(demo.peer.pubkey));
-  await until(()=>demo.output.includes('[timing] handler durationMs='),()=>demo.output);assert.match(demo.output,/\[timing\] query relay=ws:\/\/127\.0\.0\.1:/);assert.match(demo.output,/\[timing\] publish .*kinds=1059/);
-  await new Promise(r=>setTimeout(r,100));assert.equal(deniedReplies,0);assert.ok(!demo.output.includes(demo.ownGenerated.CHIRLI_NSEC!));assert.ok(!demo.output.includes(demo.ownGenerated.CHIRLI_STORAGE_KEY!));
- }finally{await other.close();await demo.close();}
+  for(const [filename,override,expected] of [
+   ['.env.local','ws://127.0.0.1:1234',['ws://127.0.0.1:1234']],
+   ['.env.disabled','',[]],
+  ] as const){
+   const file=join(directory,filename);
+   const setup=spawnSync(process.execPath,[entry('setup'),'--relays','wss://not-contacted.invalid','--discovery-relays',override,'--file',file],{cwd:root,env:cleanEnv,encoding:'utf8'});
+   assert.equal(setup.status,0,setup.stderr);
+   const parsed=configuration(parseEnv(await readFile(file,'utf8')));
+   assert.deepEqual(parsed.discoveryRelays,expected);
+   assert.deepEqual(parsed.writeRelays,['wss://not-contacted.invalid']);
+  }
+ }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('actual commands runner stays alive, enforces allowlist, uses split mode and exits on SIGTERM',async()=>{
+ const demo=await fixture('commands','nip4e');
+ try{
+  const other=new Client({identity:localNip17Identity(),relays:[demo.relay.url],database:':memory:',storageKey:generateSecretKey()});
+  try{
+   let deniedReplies=0;other.handle(()=>{deniedReplies++;});
+   await other.announce();await other.start();await other.send(demo.botPubkey,'/ping');assert.equal(await demo.request('/ping'),'pong');assert.match(await demo.request('/whoami'),new RegExp(demo.peer.pubkey));
+   await until(()=>demo.output.includes('[timing] handler durationMs='),()=>demo.output);assert.match(demo.output,/\[timing\] query relay=ws:\/\/127\.0\.0\.1:/);assert.match(demo.output,/\[timing\] publish .*kinds=1059/);
+   await new Promise(r=>setTimeout(r,100));assert.equal(deniedReplies,0);assert.ok(!demo.output.includes(demo.ownGenerated.CHIRLI_NSEC!));assert.ok(!demo.output.includes(demo.ownGenerated.CHIRLI_STORAGE_KEY!));
+  }finally{await other.close();}
+ }finally{await demo.close();}
 });
 
 test('actual echo runner uses direct Client listener on a local relay',async()=>{
