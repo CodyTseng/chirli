@@ -7,6 +7,7 @@ export async function mockBunker(connectionDelayMs = 0) {
   const transportPubkey = getPublicKey(transportSecret), accountPubkey = getPublicKey(accountSecret), wire = new WebSocketTransport();
   const methods: string[] = [], authorized = new Set<string>(), seen = new Set<string>();
   let paused: string | undefined, tamper = false, auth = false, tokenUsed = false;
+  let rejected: string | undefined;
   const connections: { client: string; hasToken: boolean }[] = [];
   let switched: Awaited<ReturnType<typeof testRelay>> | undefined;
   const encrypt = (value: string, secret: Uint8Array, peer: string) => nip44.v2.encrypt(value, nip44.v2.utils.getConversationKey(secret,peer));
@@ -27,6 +28,7 @@ export async function mockBunker(connectionDelayMs = 0) {
         authorized.add(event.pubkey);await respond('ack');return;
       }
       if(!authorized.has(event.pubkey)){await respond('','not connected');return;}
+      if(request.method===rejected){await respond('','mock request rejected');return;}
       if(request.method==='switch_relays'){await respond(JSON.stringify(switched ? [switched.url] : null));return;}
       if(request.method==='get_public_key'){await respond(accountPubkey);return;}
       if(request.method==='sign_event'){
@@ -39,12 +41,19 @@ export async function mockBunker(connectionDelayMs = 0) {
       await respond('','unsupported method');
     })().catch(()=>{}); // Invalid mock requests are ignored; the caller has a bounded timeout.
   });
-  await subscribe(relay.url).ready;
+  try {
+    await subscribe(relay.url).ready;
+  } catch (error) {
+    wire.close();
+    await relay.close();
+    throw error;
+  }
   relay.delayNewConnections(connectionDelayMs);
   return{
     relay:relay.url,accountPubkey,transportPubkey,methods,connections,
     uri:`bunker://${transportPubkey}?relay=${encodeURIComponent(relay.url)}&secret=disposable-token`,
     pause(method?:string){paused=method;},tamper(value:boolean){tamper=value;},auth(value:boolean){auth=value;},
+    reject(method?: string) { rejected = method; },
     get initialConnections() { return relay.activeConnections; },
     async switchRelay() {
       switched = await testRelay();

@@ -117,15 +117,41 @@ test('bunker switches to a relay without EOSE and releases both relay connection
   }
 });
 
-test('pure remote decryption failures do not advance recovery checkpoints and can be retried as history',async()=>{
-  const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{clientSecret:generateSecretKey(),timeoutMs:100}),identity=await identityFromSigner(signer,{mode:'nip17'});
-  const client=new Client({mode:'nip17',identity,relays:[remote.relay],database:':memory:',storageKey:generateSecretKey()}),peer=localNip17Identity();
-  const user=new Client({mode:'nip17',identity:peer,relays:[remote.relay],database:':memory:',storageKey:generateSecretKey()});let calls=0;client.handle(()=>{calls++;});client.onError(()=>{});
-  try{
-    await client.announce();await user.announce();await user.send(identity.pubkey,'/old');remote.pause('nip44_decrypt');
-    await client.start();assert.equal(client.store.checkpoint(remote.relay),undefined);
-    remote.pause();const [result]=await client.syncHistory();assert.equal(result.status,'window-complete');assert.equal(calls,0);assert.equal(client.history(peer.pubkey).messages[0].text,'/old');
-  }finally{await client.close();await user.close();await signer.close();await remote.close();}
+test('pure remote decryption failures do not advance recovery checkpoints and can be retried as history', async t => {
+  const remote = await mockBunker();
+  let signer: ReturnType<typeof bunkerSigner> | undefined;
+  let client: Client | undefined;
+  let user: Client | undefined;
+  t.after(async () => {
+    const clients = await Promise.allSettled([client?.close(), user?.close()]);
+    try { await signer?.close(); }
+    finally { await remote.close(); }
+    for (const result of clients) if (result.status === 'rejected') throw result.reason;
+  });
+
+  signer = bunkerSigner(remote.uri, { clientSecret: generateSecretKey() });
+  const identity = await identityFromSigner(signer, { mode: 'nip17' });
+  const peer = localNip17Identity();
+  client = new Client({ mode: 'nip17', identity, relays: [remote.relay], database: ':memory:', storageKey: generateSecretKey() });
+  user = new Client({ mode: 'nip17', identity: peer, relays: [remote.relay], database: ':memory:', storageKey: generateSecretKey() });
+  let calls = 0;
+  client.handle(() => { calls++; });
+  client.onError(() => {});
+
+  await client.announce();
+  await user.announce();
+  await user.send(identity.pubkey, '/old');
+  const requestsBeforeRecovery = remote.methods.length;
+  remote.reject('nip44_decrypt');
+  await client.start();
+  assert.ok(remote.methods.slice(requestsBeforeRecovery).includes('nip44_decrypt'));
+  assert.equal(client.store.checkpoint(remote.relay), undefined);
+
+  remote.reject();
+  const [result] = await client.syncHistory();
+  assert.equal(result.status, 'window-complete');
+  assert.equal(calls, 0);
+  assert.equal(client.history(peer.pubkey).messages[0].text, '/old');
 });
 
 test('bunkerSigner rejects invalid bunker connection URIs', () => {
