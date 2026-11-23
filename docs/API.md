@@ -61,6 +61,15 @@ Omitted relay roles use exported `DEFAULT_DM_RELAYS`, `DEFAULT_READ_RELAYS` and 
 | `flushAnnouncements()` | Retry pending account metadata and dirty/pending command state |
 | `flushOutbox()` | Retry persisted message bundles; aggregate failures after attempting the snapshot |
 
+`start()` does not render or return the identity. After it completes, `bot.pubkey` is the bot account’s 64-character lowercase hex public key. Applications can display it as text or derive a link or QR payload:
+
+```ts
+import { npubEncode } from 'nostr-tools/nip19';
+
+await bot.start();
+const uri = `nostr:${npubEncode(bot.pubkey)}`;
+```
+
 Concurrent start calls share readiness/failure; a start during stop waits for teardown. Startup requires one ready DM replica, while command reconciliation requires every write relay. Other DM replicas can continue recovering. History scans may report incomplete coverage without failing startup. Start does not await every business handler.
 
 `idle()` is not a remote synchronization or delivery barrier. `idle()`, `retryInbox()`, `stop()` and `close()` reject inside message handlers because they would wait on themselves. Use `requestStop()` there, then drain outside the handler.

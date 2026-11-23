@@ -16,7 +16,7 @@ npm run build
 npm run bot:commands
 ```
 
-Wait for the ready banner, then scan its npub QR code or message the printed npub with `/ping`. The identity appears only after startup completes. Press Ctrl+C to stop.
+Wait for the ready banner, then send `/ping` to the printed npub. The identity appears only after startup completes. Press Ctrl+C to stop.
 
 The runner creates persistent credentials and a database on first launch. Configuration is optional; local storage is **plaintext unless a storage key is supplied**. Wire messages remain encrypted.
 

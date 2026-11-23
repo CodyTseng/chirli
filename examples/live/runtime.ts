@@ -127,8 +127,6 @@ See examples/live/README.md for persistent keys, bunker, allowlist and relay set
       mode: config.mode,
       relays: config.relays.length,
       allowlist: config.allowlist,
-      terminal: process.stdout.isTTY === true,
-      columns: process.stdout.columns,
       storageEncrypted: !!config.storageKey,
       savedIdentity,
     }));

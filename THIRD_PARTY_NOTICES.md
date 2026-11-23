@@ -38,8 +38,6 @@ Read/write relay defaults and publication routing were additionally checked agai
 
 Peer caching/refresh and automatic encrypted key transfer additionally reference read-only MIT PsstPsst `src/services/dm/peer-encryption-key.service.ts`, `observed-peer-key.service.ts`, `encryption-key.service.ts`, `key-sync-session.ts`, `src/services/relay/relay-list.service.ts`, and its NIP-4E protocol profile. Chirli independently implements own-account live subscriptions, instance-local bounded peer caching and headless same-identity signature authorization. The source app's UI approval requirement is intentionally not copied; Chirli documents its automatic policy and disable option. Existing MIT notices remain unchanged.
 
-Terminal QR output uses the MIT-licensed `qrcode-generator` npm dependency by Kazuhiko Arase. It is used through its package API, without copying source into Chirli. Its upstream license is included in the dependency.
-
 ## Jumble structural reference
 
 Public kind 1/1111 root/parent parsing, mixed-thread batching and relay-routing design were informed by read-only review of Jumble (`src/lib/draft-event.ts`, `src/lib/event-core.ts`, `src/services/thread.service.ts`, `src/services/client.service.ts`), MIT License, Copyright (c) 2025 Cody Tseng. Chirli's bounded headless resolver and isolated public journal were implemented locally; no Jumble runtime or dependency is bundled. The project's existing MIT license text is retained. Protocol references are NIP-22 and the NIP-CD draft.

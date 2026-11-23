@@ -33,9 +33,11 @@ try {
   await mkdir(modules, { recursive: true });
   const packed = join(modules, 'chirli');
   await rename(join(scratch, 'package'), packed);
+  const packedManifest = JSON.parse(await readFile(join(packed, 'package.json'), 'utf8'));
+  assert.ok(!Object.hasOwn(packedManifest.dependencies, 'qrcode-generator'));
   assert.deepEqual(await readFile(join(packed, 'LICENSE')), await readFile(join(root, 'LICENSE')));
   // Use the already installed, locked dependencies. No registry access or pretend clean install.
-  for (const dependency of ['zod','nostr-tools', 'ws', 'qrcode-generator', '@types']) {
+  for (const dependency of ['zod','nostr-tools', 'ws', '@types']) {
     await symlink(join(root, 'node_modules', dependency), join(modules, dependency), 'dir');
   }
   await writeFile(join(consumer, 'package.json'), JSON.stringify({ type: 'module', private: true }));

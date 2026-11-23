@@ -8,7 +8,7 @@ npm run build
 npm run bot:commands
 ```
 
-`npm run example` starts the same commands bot. On first launch it generates a new identity and saves `.chirli/bot.sqlite.identity.json` with mode 0600. Later launches reuse it. After account metadata publication, command synchronization and inbox startup succeed, a single ready banner shows the public npub/hex pubkey and a scannable `nostr:npub…` QR code. QR output is limited to interactive terminals wide enough to display it; redirected logs retain the text address. Startup failure or cancellation does not print a ready banner or public identity. Private keys are never printed. Message that npub from another PsstPsst/NIP-17 account with `/ping`; the bot replies `pong` once ready. A usable sender 10050 is preferred; if missing, the bot falls back to its own DM relays. Verified incoming seal evidence supplies the encryption key even without 10044.
+`npm run example` starts the same commands bot. On first launch it generates a new identity and saves `.chirli/bot.sqlite.identity.json` with mode 0600. Later launches reuse it. After account metadata publication, command synchronization and inbox startup succeed, a single ready banner shows the public npub, hex pubkey and `nostr:npub…` URI as plain text. Startup failure or cancellation does not print a ready banner or public identity. Private keys are never printed. Message that npub from another PsstPsst/NIP-17 account with `/ping`; the bot replies `pong` once ready. A usable sender 10050 is preferred; if missing, the bot falls back to its own DM relays. Verified incoming seal evidence supplies the encryption key even without 10044.
 
 ## Zero-configuration defaults
 

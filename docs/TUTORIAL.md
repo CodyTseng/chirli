@@ -12,7 +12,7 @@ npm run build
 npm run bot:commands
 ```
 
-Wait for the ready banner. Scan the QR code or send `/ping` to its npub from another Nostr account. Press Ctrl+C to stop.
+Wait for the ready banner. Send `/ping` to its printed npub from another Nostr account. Press Ctrl+C to stop.
 
 On first launch the runner creates credentials beside `.chirli/bot.sqlite`. Later launches reuse them and the database. Local storage is plaintext unless a storage key is configured. To configure an existing nsec, bunker or custom relays, follow [live setup](../examples/live/README.md).
 

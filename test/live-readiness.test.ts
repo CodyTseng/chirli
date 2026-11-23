@@ -86,17 +86,12 @@ for (const outcome of ['ready', 'failed', 'canceled', 'retry-drain'] as const) {
   });
 }
 
-test('ready banner includes a QR in wide terminals and plain addresses in redirected/narrow output', () => {
+test('ready banner displays the public identity as plain text', () => {
   const pubkey = getPublicKey(generateSecretKey());
-  const options = { name: 'commands', hint: 'Send /ping.', pubkey, mode: 'nip17', relays: 1, storageEncrypted: false };
-  const plain = readyBanner(options);
-  assert.ok(plain.includes(`nostr:${npubEncode(pubkey)}`));
-  assert.ok(!plain.includes('\x1b['));
-  assert.ok(!plain.includes('█'));
-
-  const terminal = readyBanner({ ...options, terminal: true, columns: 80 });
-  assert.match(terminal, /[█▀▄]/u);
-  assert.ok(terminal.includes('\x1b[97;40m'));
-  assert.ok(terminal.includes('\x1b[0m'));
-  assert.equal(readyBanner({ ...options, terminal: true, columns: 10 }), plain);
+  const npub = npubEncode(pubkey);
+  const banner = readyBanner({ name: 'commands', hint: 'Send /ping.', pubkey, mode: 'nip17', relays: 1, storageEncrypted: false });
+  assert.ok(banner.includes(`Bot npub: ${npub}`));
+  assert.ok(banner.includes(`Bot identity: ${pubkey}`));
+  assert.ok(banner.includes(`Nostr address: nostr:${npub}`));
+  assert.ok(!banner.includes('\x1b['));
 });
