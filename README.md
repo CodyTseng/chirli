@@ -177,10 +177,11 @@ Definitions and scopes grant no execution permission. Configure `allowlist` on B
 | `messageStorage` | Message backend; defaults to `sqliteMessageStorage` |
 | `storageKey` | Optional 32-byte key for local payload encryption |
 | `allowlist` | Allowed sender public keys; omitted accepts all, `[]` denies all |
-| `relays` | Common defaults for the three relay roles |
+| `relays` | Common list for each omitted relay role |
 | `dmRelays` | Receive and deliver private messages |
 | `readRelays` | Query public metadata |
 | `writeRelays` | Publish public commands and account metadata |
+| `discoveryRelays` | Extra targets for public account announcements |
 | `mode` | `nip17` by default; `nip4e` enables separate messaging keys |
 
 Preserve signer credentials, the database and any storage key across restarts. `messageStorage` stores messages, deduplication and processing state; it defaults to `sqliteMessageStorage` in the configured database. Supply `sqliteMessageStorage('./messages.sqlite')` or implement `insert`, `query` and `updateState` to use another message backend. Outbox, keys and other internal data always use SQLite configured by `database`. Custom `Transport` implementations are also supported.

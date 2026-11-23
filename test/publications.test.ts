@@ -23,8 +23,9 @@ const definition={id:'stable-ping',command:'ping',title:'Ping',description:'Repl
 test('read/write defaults, role overrides and canonical NIP-65 tags',()=>{
  const expected=['wss://nos.lol/','wss://relay.primal.net/','wss://relay.ditto.pub/','wss://offchain.pub/'];
  assert.deepEqual(DEFAULT_READ_RELAYS,expected);assert.deepEqual(DEFAULT_WRITE_RELAYS,expected);
- assert.deepEqual(DEFAULT_DISCOVERY_RELAYS,expected.slice(0,3));
- assert.deepEqual(relayRoles({}).discoveryRelays,expected.slice(0,3));
+ assert.deepEqual(DEFAULT_DISCOVERY_RELAYS,expected);
+ assert.deepEqual(relayRoles({}).discoveryRelays,expected);
+ assert.deepEqual(configuration({}).discoveryRelays,expected);
  assert.deepEqual(relayRoles({relays:['ws://local.invalid'] }),{dmRelays:['ws://local.invalid'],readRelays:['ws://local.invalid'],writeRelays:['ws://local.invalid'],discoveryRelays:['ws://local.invalid']});
  assert.deepEqual(readWriteTags(['wss://shared.invalid','wss://read.invalid'],['wss://shared.invalid/','wss://write.invalid']),[['r','wss://shared.invalid/'],['r','wss://read.invalid/','read'],['r','wss://write.invalid/','write']]);
  assert.throws(()=>relayRoles({writeRelays:[]}));assert.deepEqual(relayRoles({readRelays:[]}).readRelays,[]);

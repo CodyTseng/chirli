@@ -16,6 +16,4 @@ export const DEFAULT_WRITE_RELAYS: readonly string[] = Object.freeze([...DEFAULT
 export const DEFAULT_BLOSSOM_SERVERS: readonly string[] = Object.freeze(['https://blossom.jumble.social/']);
 
 /** Large relays used to help clients discover public account metadata. */
-export const DEFAULT_DISCOVERY_RELAYS: readonly string[] = Object.freeze([
-  'wss://nos.lol/', 'wss://relay.primal.net/', 'wss://relay.ditto.pub/',
-]);
+export const DEFAULT_DISCOVERY_RELAYS = DEFAULT_READ_RELAYS;

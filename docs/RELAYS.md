@@ -17,7 +17,7 @@ await bot.start();
 | `dmRelays` | Subscribe to the inbox, recover history and provide delivery fallback | relay.psstpsst.chat, nos.lol, relay.ditto.pub |
 | `readRelays` | Add relays for metadata discovery | nos.lol, relay.primal.net, relay.ditto.pub, offchain.pub |
 | `writeRelays` | Publish commands and account metadata | Same as `readRelays` |
-| `discoveryRelays` | Extra publication targets for public account lists | nos.lol, relay.primal.net, relay.ditto.pub |
+| `discoveryRelays` | Extra publication targets for public account lists | Same as `readRelays` and `writeRelays` |
 
 Defaults are exported as `DEFAULT_DM_RELAYS`, `DEFAULT_READ_RELAYS`, `DEFAULT_WRITE_RELAYS` and `DEFAULT_DISCOVERY_RELAYS`. The DM and write lists must be nonempty. Pass `readRelays: []` or `discoveryRelays: []` to omit the respective role. Peer metadata lookup still queries the union of configured read, write and DM relays. The live examples map these roles to [environment variables](../examples/live/README.md).
 

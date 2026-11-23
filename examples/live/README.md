@@ -16,7 +16,7 @@ npm run bot:commands
 | --- | --- |
 | CHIRLI_NSEC and CHIRLI_BUNKER | Generate/reuse the private identity file next to the database |
 | CHIRLI_STORAGE_KEY | Plaintext local messages, sessions and split-key custody; no at-rest encryption |
-| CHIRLI_RELAYS | PsstPsst's default DM relay list below |
+| CHIRLI_RELAYS | Use role-specific defaults for each unset relay list |
 | CHIRLI_DATABASE | .chirli/bot.sqlite |
 | CHIRLI_MODE | Identity-key nip17; both receive protocols accepted |
 | CHIRLI_ALLOWLIST | Accept all authenticated incoming identities; an explicitly empty value denies all |
@@ -117,7 +117,7 @@ If startup exits, diagnostics use its failing phase, such as `[error][startup]`,
 
 ## Separate relay roles
 
-Optional `CHIRLI_DM_RELAYS`, `CHIRLI_READ_RELAYS`, `CHIRLI_WRITE_RELAYS`, `CHIRLI_DISCOVERY_RELAYS` override each role independently (comma-separated URLs). `CHIRLI_RELAYS` is a common-list shorthand for omitted roles. With no settings, DM uses the three defaults above; read/write each use `wss://nos.lol/,wss://relay.primal.net/,wss://relay.ditto.pub/,wss://offchain.pub/`, matching PsstPsst's role fallback. The discovery role defaults to `wss://nos.lol/,wss://relay.primal.net/,wss://relay.ditto.pub/`. An explicit empty read or discovery list disables that role; DM/write cannot be empty.
+Optional `CHIRLI_DM_RELAYS`, `CHIRLI_READ_RELAYS`, `CHIRLI_WRITE_RELAYS`, `CHIRLI_DISCOVERY_RELAYS` override each role independently (comma-separated URLs). `CHIRLI_RELAYS` is a common-list shorthand for omitted roles. With no settings, DM uses the three defaults above. Read, write and discovery each use `wss://nos.lol/`, `wss://relay.primal.net/`, `wss://relay.ditto.pub/` and `wss://offchain.pub/`, matching PsstPsst's read/write fallback. An explicit empty read or discovery list disables that role. DM and write lists must be nonempty.
 
 `bot:init` accepts `--dm-relays`, `--read-relays`, `--write-relays`, and `--discovery-relays` (or common `--relays`). It writes all four resolved roles without contacting them. Pass `--discovery-relays ""` to disable the extra announcements. Public command declarations include their full metadata/scopes. All Bot command definitions are public. Put unadvertised application behavior in ordinary middleware or Bot.handle instead of registering a command. Publication can partially succeed; it is not atomic or proof of indexing/delivery. See [relay roles and retry](../../docs/RELAYS.md).
 
