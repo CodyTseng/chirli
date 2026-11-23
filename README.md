@@ -2,7 +2,7 @@
 
 A TypeScript SDK for Nostr bots with private messages and file attachments, public note/comment commands, middleware and persistent sessions.
 
-**Node.js 24+ · ESM · Experimental · Not yet published to npm**
+**Node.js 24+ · ESM · Experimental**
 
 Applications choose what to process and which external services to call. The SDK has no built-in AI provider or automatic history upload.
 
@@ -30,6 +30,12 @@ The runner creates persistent credentials and a database on first launch. Config
 See [live setup](examples/live/README.md) for credentials, bunker authorization, relays and diagnostics. To explore without external connections, run `npm run examples:smoke` after building.
 
 ## Build your own bot
+
+Once the first release is available on npm, install Chirli in your project.
+
+```sh
+npm install chirli
+```
 
 For a guided path from the runnable demo to your own application, see the [first bot tutorial](docs/TUTORIAL.md).
 

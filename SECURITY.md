@@ -1,12 +1,12 @@
 # Security policy
 
-Chirli is an unreleased MVP. It has not had an independent security audit. No supported-release or response-time commitment has been established.
+Chirli is experimental. It has not had an independent security audit. No supported-release or response-time commitment has been established.
 
 ## Reporting
 
-A private vulnerability-reporting channel has **not yet been configured**. Before public release, maintainers must enable and verify a private reporting mechanism on the chosen repository host and document its exact use here. There is no security email address or repository URL to infer from this checkout or from PsstPsst's authors.
+Use GitHub's private vulnerability reporting form to contact the Chirli maintainers. [Report a vulnerability](https://github.com/CodyTseng/chirli/security/advisories/new)
 
-Do not publish live credentials, private messages or a weaponized exploit in a public issue. Prepare a minimal local reproduction with disposable keys, affected version/mode, expected/actual behavior, impact and relevant sanitized diagnostics. Once a verified private channel is documented, send that reproduction through it. No bounty, SLA or external coordination agreement is promised here.
+Include the affected version and mode, expected and actual behavior, impact, sanitized diagnostics and a minimal local reproduction with disposable keys. Keep live credentials and private messages out of reports. Use the private channel for vulnerability details.
 
 ## Boundaries
 

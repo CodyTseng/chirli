@@ -35,9 +35,9 @@ See [API.md](docs/API.md), [signers](docs/SIGNERS.md), [recovery](docs/RECOVERY.
 
 ## Reports and licensing
 
-For ordinary bugs, provide runtime versions, selected mode, a minimal reproduction with disposable keys, and expected/actual behavior. Do not include private keys, storage keys, personal messages, or relay credentials. Follow [SECURITY.md](SECURITY.md) for potential vulnerabilities.
+For ordinary bugs, provide runtime versions, selected mode, a minimal reproduction with disposable keys, and expected and actual behavior. Keep private keys, storage keys, personal messages and relay credentials out of reports. [GitHub Issues](https://github.com/CodyTseng/chirli/issues)
 
-No repository URL, contributor contact or private reporting address is assigned here yet. Use only the project's verified hosting/reporting channels once maintainers configure them; do not infer an address from upstream projects. The existing LICENSE and attributions are retained. Maintainers must confirm the licensing decision for SDK-authored work before a first public release. No CLA, DCO or new contribution-license agreement is imposed by this document.
+Report potential vulnerabilities privately using the instructions in [SECURITY.md](SECURITY.md). Chirli is licensed under MIT and retains the upstream attributions in [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 NIP-CD is a draft integration. Retain stable command coordinates and signature/deletion handling. Commands are always public on configured write relays; Bot startup reconciles the complete local registry before dispatch. Keep kind 31992 definitions and kind 5 withdrawals distinct from standard user-installed list 10992. Bot coordinates are command-name derived; wire decoding retains external d values. Do not describe the SDK's private-DM scope mapping as standardized. See docs/NIP-CD.md.
 

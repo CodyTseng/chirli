@@ -65,7 +65,14 @@
     "typescript": "^5.9.0"
   },
   "description": "A developer-controlled Nostr bot SDK for private messages and explicitly scoped kind 1/1111 public commands.",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CodyTseng/chirli.git"
+  },
+  "homepage": "https://github.com/CodyTseng/chirli#readme",
+  "bugs": {
+    "url": "https://github.com/CodyTseng/chirli/issues"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "keywords": [

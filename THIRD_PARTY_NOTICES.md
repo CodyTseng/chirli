@@ -1,6 +1,6 @@
 # Third-party notices
 
-The existing package metadata declares MIT and the complete inherited LICENSE is retained unchanged. Release maintainers must confirm the licensing and authorship decision for Chirli-authored work before public release; no new license approval is implied here.
+Chirli is licensed under MIT. The [LICENSE](LICENSE) includes the project's copyright and retains the inherited attributions.
 
 PsstPsst protocol behavior and compatibility fixture generation are derived from the MIT-licensed PsstPsst project by Cody Tseng. Its complete original license, including the Expo attribution, is retained in LICENSE. The fixture generator extracts unchanged envelope functions from an explicitly supplied upstream source file; that temporary source is removed after fixture generation. No application account key material is included. The fixture contains only randomly generated disposable encryption keys.
 
