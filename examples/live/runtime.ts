@@ -43,7 +43,7 @@ See examples/live/README.md for persistent keys, bunker, allowlist and relay set
     const config = configuration(process.env);
     phase = 'signer';
 
-    if (config.bunker) {
+    if (config.bunker !== undefined) {
       signer = bunkerSigner(config.bunker, { clientSecret: config.bunkerClientKey });
     } else {
       const saved = config.nsec ? undefined : generatedIdentity(config.database, config.storageKey);

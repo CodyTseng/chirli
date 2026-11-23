@@ -63,7 +63,7 @@ for (const mode of ['nip4e', 'nip17']) {
   await bot.close();
   await signer.close();
 }
-assert.throws(()=>bunkerSigner('invalid'),/Invalid bunker/);
+assert.throws(()=>bunkerSigner('invalid',{clientSecret:generateSecretKey()}),/Invalid bunker/);
 await assert.rejects(import('chirli/src/client.js'), {code:'ERR_PACKAGE_PATH_NOT_EXPORTED'});
 `);
   run(process.execPath, ['consumer.mjs'], consumer);

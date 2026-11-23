@@ -3,15 +3,16 @@ import { Client } from './client.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat, appendFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, appendFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { parseEnv } from 'node:util';
-import { generateSecretKey, type Message } from '../src/index.js';
+import { generateSecretKey, getPublicKey, type Message } from '../src/index.js';
 import { configuration, ConfigurationError } from '../examples/live/config.js';
 import { testRelay } from './relay.js';
+import { mockBunker } from './bunker.js';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const entry=(name:string)=>join(root,'dist/examples/live',`${name}.js`);
 // Do not inherit operator credentials, .env files or signer configuration into test children.
@@ -74,6 +75,8 @@ async function fixture(profile:string,mode:'nip17'|'nip4e'='nip17',partialFailur
 test('live config supplies defaults without credentials, distinguishes absent/empty allowlist and validates rotation',()=>{
  const base={CHIRLI_NSEC:'operator-provided',CHIRLI_STORAGE_KEY:'ab'.repeat(32),CHIRLI_RELAYS:'wss://one.invalid,wss://two.invalid'};
  assert.equal(configuration({}).nsec,undefined);assert.equal(configuration({}).storageKey,undefined);assert.throws(()=>configuration({...base,CHIRLI_BUNKER:'bunker://operator'}),/only one/);
+ assert.throws(()=>configuration({CHIRLI_BUNKER:'bunker://operator'}),/CHIRLI_BUNKER_CLIENT_KEY is required/);
+ assert.throws(()=>configuration({CHIRLI_BUNKER:'bunker://operator',CHIRLI_BUNKER_CLIENT_KEY:'bad'}),/CHIRLI_BUNKER_CLIENT_KEY/);
  const parsed=configuration(base);assert.equal(parsed.mode,'nip17');assert.equal(parsed.allowlist,undefined);assert.equal(parsed.relays.length,2);assert.equal(parsed.database,'.chirli/bot.sqlite');
  assert.deepEqual(configuration({...base,CHIRLI_ALLOWLIST:''}).allowlist,[]);
  assert.throws(()=>configuration({...base,CHIRLI_STORAGE_KEY:'bad'}),/STORAGE_KEY/);assert.throws(()=>configuration({...base,CHIRLI_ALLOWLIST:'npub1-invalid'}),/identity/);
@@ -124,6 +127,40 @@ test('actual commands runner stays alive, enforces allowlist, uses split mode an
 
 test('actual echo runner uses direct Client listener on a local relay',async()=>{
  const demo=await fixture('echo');try{assert.equal(await demo.request('A usable direct listener'),'Echo: A usable direct listener');}finally{await demo.close();}
+});
+
+test('live bunker runner reconnects across processes with its configured client key', async () => {
+  const remote = await mockBunker();
+  const directory = await mkdtemp(join(tmpdir(), 'chirli-live-bunker-'));
+  const file = join(directory, '.env.bot'), database = join(directory, 'bot.sqlite');
+  const clientKey = Buffer.from(generateSecretKey());
+  const writeConfig = (uri: string) => writeFile(file,
+    `CHIRLI_BUNKER=${uri}\nCHIRLI_BUNKER_CLIENT_KEY=${clientKey.toString('hex')}\nCHIRLI_DATABASE=${database}\nCHIRLI_RELAYS=${remote.relay}\n`,
+    { mode: 0o600 },
+  );
+  let runner: ReturnType<typeof launch> | undefined;
+  try {
+    await writeConfig(remote.uri);
+    runner = launch('commands', file);
+    await runner.ready();
+    assert.ok(runner.output.includes(`Bot identity: ${remote.accountPubkey}`));
+    await stop(runner.child);
+
+    const reconnect = new URL(remote.uri);
+    reconnect.searchParams.delete('secret');
+    await writeConfig(reconnect.href);
+    runner = launch('commands', file);
+    await runner.ready();
+    assert.ok(runner.output.includes(`Bot identity: ${remote.accountPubkey}`));
+    assert.deepEqual(remote.connections, [
+      { client: getPublicKey(clientKey), hasToken: true },
+      { client: getPublicKey(clientKey), hasToken: false },
+    ]);
+  } finally {
+    if (runner) await stop(runner.child);
+    await remote.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('actual session runner preserves state across process restart and does not replay history',async()=>{

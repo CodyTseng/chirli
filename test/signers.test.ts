@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { nip44, verifyEvent } from 'nostr-tools';
 import { nsecEncode, npubEncode } from 'nostr-tools/nip19';
-import { bunkerSigner, nsecSigner, generateSecretKey, getPublicKey, SignerError } from '../src/index.js';
+import { bunkerSigner, nsecSigner, generateSecretKey, getPublicKey, SignerError, DEFAULT_RELAY_TIMEOUTS } from '../src/index.js';
 import { BotHandlers as Bot } from '../src/bot-handlers.js';
 import { mockBunker } from './bunker.js';
 async function until(check:()=>boolean){for(let i=0;i<200;i++){if(check())return;await new Promise(resolve=>setTimeout(resolve,10));}assert.fail('condition timeout');}
@@ -26,7 +26,7 @@ test('nsec signer validates input, signs, supports NIP-44 and closes without exp
 
 test('bunker uses one lazy handshake, resolves the user key and rejects URL challenges',async()=>{
   const remote=await mockBunker();
-  const signer=bunkerSigner(remote.uri,{timeoutMs:1000});
+  const signer=bunkerSigner(remote.uri,{clientSecret:generateSecretKey(),timeoutMs:1000});
   try{
     assert.equal(remote.methods.length,0);
     const keys=await Promise.all([signer.getPublicKey(),signer.getPublicKey(),signer.getPublicKey()]);
@@ -49,7 +49,7 @@ test('bunker uses one lazy handshake, resolves the user key and rejects URL chal
 
 for(const mode of ['nip4e','nip17'] as const){
   test(`${mode}: bunker-backed SDK identity uses the shared Bot and authenticated message lifecycle`,async()=>{
-    const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{timeoutMs:1000});
+    const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{clientSecret:generateSecretKey(),timeoutMs:1000});
     const identity=mode==='nip17'?await identityFromSigner(signer,{mode}):await identityFromSigner(signer,{encryptionKey:generateSecretKey()});
     const peer=mode==='nip17'?localNip17Identity():localIdentity();
     const client=new Client({mode,identity,relays:[remote.relay],database:':memory:',storageKey:generateSecretKey()});
@@ -70,7 +70,7 @@ for(const mode of ['nip4e','nip17'] as const){
 }
 
 test('bunker timeouts discard stale connections, reconnect with the client session key and close pending requests',async()=>{
-  const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{timeoutMs:100});
+  const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{clientSecret:generateSecretKey(),timeoutMs:100});
   try{
     await signer.getPublicKey();remote.pause('sign_event');
     await assert.rejects(signer.signEvent({kind:1,created_at:10,tags:[],content:'timeout'}),error=>error instanceof SignerError&&error.code==='SIGNER_TIMEOUT');
@@ -81,8 +81,44 @@ test('bunker timeouts discard stale connections, reconnect with the client sessi
   }finally{await signer.close();await remote.close();}
 });
 
+test('bunker connects after the Bot transport default when timeoutMs allows it', async () => {
+  const relayDefault = DEFAULT_RELAY_TIMEOUTS.connectionTimeoutMs;
+  const remote = await mockBunker(relayDefault + 200);
+  const signer = bunkerSigner(remote.uri, { clientSecret: generateSecretKey(), timeoutMs: relayDefault + 5000 });
+  try {
+    assert.equal(await signer.getPublicKey(), remote.accountPubkey);
+  } finally {
+    await signer.close();
+    await remote.close();
+  }
+});
+
+test('bunker switches to a relay without EOSE and releases both relay connections on timeout', async () => {
+  const remote = await mockBunker();
+  const signer = bunkerSigner(remote.uri, { clientSecret: generateSecretKey(), timeoutMs: 300 });
+  const template = { kind: 1, created_at: 10, tags: [], content: 'disposable' };
+  try {
+    const target = await remote.switchRelay();
+    assert.equal(await signer.getPublicKey(), remote.accountPubkey);
+    assert.equal((await signer.signEvent(template)).pubkey, remote.accountPubkey);
+    assert.equal(target.activeConnections, 2);
+
+    remote.pause('sign_event');
+    await assert.rejects(signer.signEvent(template), { code: 'SIGNER_TIMEOUT' });
+    await until(() => remote.initialConnections === 1 && target.activeConnections === 1);
+
+    remote.pause();
+    assert.equal((await signer.signEvent(template)).pubkey, remote.accountPubkey);
+    assert.equal(target.activeConnections, 2);
+    assert.equal(remote.methods.filter(method => method === 'connect').length, 2);
+  } finally {
+    await signer.close();
+    await remote.close();
+  }
+});
+
 test('pure remote decryption failures do not advance recovery checkpoints and can be retried as history',async()=>{
-  const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{timeoutMs:100}),identity=await identityFromSigner(signer,{mode:'nip17'});
+  const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{clientSecret:generateSecretKey(),timeoutMs:100}),identity=await identityFromSigner(signer,{mode:'nip17'});
   const client=new Client({mode:'nip17',identity,relays:[remote.relay],database:':memory:',storageKey:generateSecretKey()}),peer=localNip17Identity();
   const user=new Client({mode:'nip17',identity:peer,relays:[remote.relay],database:':memory:',storageKey:generateSecretKey()});let calls=0;client.handle(()=>{calls++;});client.onError(()=>{});
   try{
@@ -93,6 +129,17 @@ test('pure remote decryption failures do not advance recovery checkpoints and ca
 });
 
 test('bunkerSigner rejects invalid bunker connection URIs', () => {
-  assert.throws(()=>bunkerSigner('someone@example.test'),/Invalid bunker/);
-  assert.throws(()=>bunkerSigner('bunker://invalid?relay=https://example.test'),/Invalid bunker/);
+  const clientSecret = generateSecretKey();
+  assert.throws(()=>bunkerSigner('someone@example.test', { clientSecret }),/Invalid bunker/);
+  assert.throws(()=>bunkerSigner('bunker://invalid?relay=https://example.test', { clientSecret }),/Invalid bunker/);
+});
+
+test('bunkerSigner requires an explicit valid client key before connecting', () => {
+  const uri = `bunker://${getPublicKey(generateSecretKey())}?relay=ws://127.0.0.1:1`;
+  // @ts-expect-error A JavaScript caller may omit options.
+  assert.throws(() => bunkerSigner(uri), /clientSecret/);
+  // @ts-expect-error A client key is required even when other options are set.
+  assert.throws(() => bunkerSigner(uri, { timeoutMs: 100 }), /clientSecret/);
+  assert.throws(() => bunkerSigner(uri, { clientSecret: new Uint8Array(31) }), /32-byte/);
+  assert.throws(() => bunkerSigner(uri, { clientSecret: new Uint8Array(32) }), /valid NIP-46/);
 });

@@ -121,7 +121,7 @@ test('managed history/reconnect checks the same identity policy without persisti
 });
 
 test('bunker-backed intake applies the identity allowlist after async decryption in both modes and protocols',async()=>{
- const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{timeoutMs:1000}),identity=await identityFromSigner(signer),allowed=localIdentity(),denied=localIdentity();
+ const remote=await mockBunker(),signer=bunkerSigner(remote.uri,{clientSecret:generateSecretKey(),timeoutMs:1000}),identity=await identityFromSigner(signer),allowed=localIdentity(),denied=localIdentity();
  try{
   for(const mode of ['nip17','nip4e'] as const){
    const client=new Client({mode,identity,inboundPolicy:allowlist([allowed.pubkey]),relays:urls,transport:silent,database:':memory:',storageKey:generateSecretKey()});let calls=0;client.handle(()=>{calls++;});

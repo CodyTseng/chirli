@@ -63,7 +63,7 @@ test('key transfer verifies same identity, aliases, freshness and requested held
  }finally{sync.stop();await sync.idle();store.close();}
 });
 for(const signerType of ['nsec','bunker'] as const)test(`${signerType}: a new split device synchronizes automatically, tracks a live rotation and keeps encrypted keys across restart`,async()=>{
- const network=new MemoryRelay(),remote=signerType==='bunker'?await mockBunker():undefined,secret=generateSecretKey(),storageKey=generateSecretKey(),signer=remote?bunkerSigner(remote.uri):nsecSigner(nsecEncode(secret)),identity=await identityFromSigner(signer),dir=await mkdtemp(join(tmpdir(),'chirli-sync-'));
+ const network=new MemoryRelay(),remote=signerType==='bunker'?await mockBunker():undefined,secret=generateSecretKey(),storageKey=generateSecretKey(),signer=remote?bunkerSigner(remote.uri,{clientSecret:generateSecretKey()}):nsecSigner(nsecEncode(secret)),identity=await identityFromSigner(signer),dir=await mkdtemp(join(tmpdir(),'chirli-sync-'));
  const owner=new Client({identity,mode:'nip4e',relays:[url],database:':memory:',transport:network.transport(),keySync:{timeoutMs:1000}});
  const options={identity,mode:'nip4e' as const,relays:[url],database:join(dir,'state.sqlite'),storageKey,transport:network.transport(),keySync:{timeoutMs:1000}};let device=new Client(options);
  try{

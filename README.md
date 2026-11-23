@@ -71,7 +71,7 @@ Replace the signer without changing handlers:
 ```ts
 import { bunkerSigner } from 'chirli';
 
-const signer = bunkerSigner(bunkerUri);
+const signer = bunkerSigner(bunkerUri, { clientSecret: bunkerClientKeyFromYourSecretManager });
 ```
 
 Pass this signer to `new Bot({ signer })`. After startup, `bot.pubkey` gives you the account key. Approve requests in the signer or configure its permissions ahead of time. See [remote signers](docs/SIGNERS.md#remote-bunker).

@@ -83,7 +83,9 @@ node --env-file=/absolute/path/to/.env.my-bot dist/examples/live/commands.js
 
 ## Bunker and separate keys
 
-Set CHIRLI_BUNKER (and remove CHIRLI_NSEC) to use your remote signer. Optional CHIRLI_BUNKER_CLIENT_KEY preserves the NIP-46 client session. The signer must authorize identity signing and NIP-44 operations. Account identity is resolved independently of its transport key. Handle approval in the signer or configure permissions ahead of time. A signer response that requires opening an authorization URL fails.
+Set `CHIRLI_BUNKER` and `CHIRLI_BUNKER_CLIENT_KEY`, and remove `CHIRLI_NSEC` to use your remote signer. `CHIRLI_BUNKER_CLIENT_KEY` must contain a dedicated 32-byte NIP-46 client private key in hex. Generate and save it before pairing. To reconnect after a restart, keep the same client key and remove any consumed one-time `secret` parameter from the bunker URI.
+
+The signer must retain the client's authorization for identity signing and NIP-44 operations. An earlier run that already exited with an unsaved client key needs a fresh pairing URI. Handle approval in the signer or configure permissions ahead of time. A signer response that requires opening an authorization URL fails.
 
 For separate local encryption keys/rotation on a new account:
 

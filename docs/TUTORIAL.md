@@ -168,7 +168,7 @@ await bot.start();
 console.log(bot.pubkey);
 ```
 
-Use `bunkerSigner(uri)` through the same interface when signing remotely. Register handlers, then await `bot.start()` before displaying the public identity.
+Use `bunkerSigner(uri, { clientSecret })` through the same interface when signing remotely. Keep the NIP-46 client key for subsequent runs. Register handlers, then await `bot.start()` before displaying the public identity.
 
 On shutdown, stop application timers and await their work, close the Bot, then close injected resources. Bot closes only its internally created transport/storage; signers and other injected resources remain yours.
 

@@ -20,7 +20,7 @@
 
 # Bunker alternative: do not set CHIRLI_NSEC at the same time.
 # CHIRLI_BUNKER=bunker://your-signer-connection
-# CHIRLI_BUNKER_CLIENT_KEY=optional-persistent-64-hex-client-session-key
+# CHIRLI_BUNKER_CLIENT_KEY=required-64-hex-nip46-client-private-key
 # CHIRLI_OUTBOX_RETRY_MS=30000
 
 # Per-role overrides take precedence over the CHIRLI_RELAYS common shorthand:

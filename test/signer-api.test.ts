@@ -45,7 +45,7 @@ test('signer ownership, failed account resolution and credential isolation are e
   let closes = 0;
   const unavailable:Signer = {getPublicKey:async()=>{throw new Error('unavailable');},signEvent:async()=>{throw new Error('unused');},nip44Encrypt:async()=>'',nip44Decrypt:async()=>'',close:async()=>{closes++;}};
   await assert.rejects(Client.create({signer:unavailable,database:':memory:'}),/unavailable/); assert.equal(closes,0);
-  assert.throws(()=>bunkerSigner('not a bunker URI'),/Invalid bunker/);
+  assert.throws(()=>bunkerSigner('not a bunker URI',{clientSecret:generateSecretKey()}),/Invalid bunker/);
 });
 
 test('custom capability signers need no lifecycle or NIP-04 methods; account resolution is cached', async () => {

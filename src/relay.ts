@@ -27,11 +27,16 @@ const localReadBoundaries=new WeakMap<Event,number>();
 /** Verified layers may use this local-window boundary; it is never supplied by event tags. */
 export function localReadBoundary(event:Event):number|undefined {return localReadBoundaries.get(event);}
 
-const inboxSubscribers=new WeakMap<Transport,Transport['subscribe']>();
+const managedSubscribers = new WeakMap<Transport, (mode: 'inbox' | 'requests', ...args: Parameters<Transport['subscribe']>) => Subscription>();
 /** Only SDK long-lived inbox demand opts into a local initial-read window. */
 export function subscribeInbox(transport:Transport,...args:Parameters<Transport['subscribe']>):Subscription {
-  const subscribe=inboxSubscribers.get(transport);
-  return subscribe?subscribe(...args):transport.subscribe(...args);
+  const subscribe=managedSubscribers.get(transport);
+  return subscribe?subscribe('inbox',...args):transport.subscribe(...args);
+}
+
+/** RPC response subscriptions are ready once REQ has been issued on the socket. */
+export function subscribeRequests(transport: WebSocketTransport, ...args: Parameters<Transport['subscribe']>): Subscription {
+  return managedSubscribers.get(transport)!('requests', ...args);
 }
 
 /** Opt-in performance metadata only: no event IDs, authors, content or raw URL paths/queries. */
@@ -91,7 +96,7 @@ export class WebSocketTransport implements Transport {
     this.timeoutMs = timeouts.eoseTimeoutMs;
     this.pool = new RelayPool(timeouts, sign);
     socketProbes.set(this,url=>this.pool.isConnected(url));
-    inboxSubscribers.set(this,(relays,filter,receive,disconnect)=>this.subscribeMode(relays,filter,receive,disconnect,true));
+    managedSubscribers.set(this, (mode, relays, filter, receive, disconnect) => this.subscribeMode(relays, filter, receive, disconnect, mode));
   }
 
   private timing(operation: RelayTiming['operation'], url: string, kinds: number[], start: number, error?: unknown) {
@@ -126,10 +131,10 @@ export class WebSocketTransport implements Transport {
   }
 
   subscribe(relays: string[], filter: Filter, onEvent: (event: Event, source: 'live' | 'history') => void, onDisconnect?: (error: Error) => void): Subscription {
-    return this.subscribeMode(relays,filter,onEvent,onDisconnect,false);
+    return this.subscribeMode(relays,filter,onEvent,onDisconnect,'strict');
   }
 
-  private subscribeMode(relays: string[], filter: Filter, onEvent: (event: Event, source: 'live' | 'history') => void, onDisconnect: ((error: Error) => void) | undefined, localReadWindow: boolean, onAttempt?: () => void): Subscription {
+  private subscribeMode(relays: string[], filter: Filter, onEvent: (event: Event, source: 'live' | 'history') => void, onDisconnect: ((error: Error) => void) | undefined, mode: 'strict' | 'inbox' | 'requests', onAttempt?: () => void): Subscription {
     const closers: (() => void)[] = [];
     let stopped = false;
     const ready = Promise.all([...new Set(relays)].map(url => new Promise<void>((resolve, reject) => {
@@ -167,7 +172,7 @@ export class WebSocketTransport implements Transport {
         const attempt = id;
         onAttempt?.();
         // This caps repeated AUTH/replay cycles, not the library's EOSE timer.
-        hardTimer ??= setTimeout(() => fail(error('RELAY_EOSE_TIMEOUT')), Math.min(2147483647, this.timeouts.eoseTimeoutMs + this.timeouts.authTimeoutMs));
+        if (mode !== 'requests') hardTimer ??= setTimeout(() => fail(error('RELAY_EOSE_TIMEOUT')), Math.min(2147483647, this.timeouts.eoseTimeoutMs + this.timeouts.authTimeoutMs));
         sub = lease!.subscribe(filter, {
           id, eoseTimeout: this.timeouts.eoseTimeoutMs,
           onevent: event => {
@@ -178,11 +183,12 @@ export class WebSocketTransport implements Transport {
           },
           oneose: () => {
             if (ended || stopped || id !== attempt || lease?.authenticating || authTimer) return;
+            if (mode === 'requests') return;
             if (live) {
               // Filtered/invalid wire entries cannot make a capped strict page look complete.
-              if (!localReadWindow && rawCount !== acceptedCount) { fail(error('RELAY_HISTORY_INCOMPLETE')); return; }
+              if (mode === 'strict' && rawCount !== acceptedCount) { fail(error('RELAY_HISTORY_INCOMPLETE')); return; }
               finish();
-            } else if (localReadWindow) { boundary = Date.now() / 1000; finish(); }
+            } else if (mode === 'inbox') { boundary = Date.now() / 1000; finish(); }
             else fail(error('RELAY_EOSE_TIMEOUT'));
           },
           onclose: reason => {
@@ -198,6 +204,7 @@ export class WebSocketTransport implements Transport {
         // local filter lets its verifier reject them quietly; the callback applies
         // the actual filter after verification. The original REQ is already sent.
         sub.filters = [{}];
+        if (mode === 'requests') finish();
       };
       closers.push(() => { ended = true; clear(); retire(); lease?.release(); resolve(); });
       try {
@@ -275,7 +282,7 @@ export class WebSocketTransport implements Transport {
           if (source === 'history') {
             events.push(event);
           }
-        }, undefined, false, () => { events.length = 0; });
+        }, undefined, 'strict', () => { events.length = 0; });
         await sub.ready;
         this.timing('query', relay, filter.kinds ?? [], start);
         return events;

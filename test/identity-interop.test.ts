@@ -50,7 +50,7 @@ test('actual current PsstPsst envelope functions interoperate in both directions
 for(const kind of ['local','nsec','bunker'] as const){
  test(`${kind}: nip17 identity-key service exchanges live commands/replies with a separate-key peer`,async()=>{
   const remote=kind==='bunker'?await mockBunker():undefined,relay=remote?undefined:await testRelay(),url=remote?.relay??relay!.url;
-  const signer=kind==='bunker'?bunkerSigner(remote!.uri,{timeoutMs:1000}):kind==='nsec'?nsecSigner(nsecEncode(generateSecretKey())):undefined;
+  const signer=kind==='bunker'?bunkerSigner(remote!.uri,{clientSecret:generateSecretKey(),timeoutMs:1000}):kind==='nsec'?nsecSigner(nsecEncode(generateSecretKey())):undefined;
   const identity=signer?await identityFromSigner(signer,{mode:'nip17'}):localNip17Identity(),peerIdentity=localIdentity();
   const wire=new WebSocketTransport(5000,t=>identity.sign(t)),events:Event[]=[];
   const transport:Transport={query:wire.query.bind(wire),subscribe:wire.subscribe.bind(wire),close:()=>wire.close(),publish:async(relays,event)=>{events.push(event);await wire.publish(relays,event);}};

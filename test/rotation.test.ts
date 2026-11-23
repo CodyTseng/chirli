@@ -31,7 +31,7 @@ async function until(check:()=>boolean){for(let i=0;i<300;i++){if(check())return
 for(const mode of ['nip17','nip4e'] as const)for(const signerKind of ['local','nsec','bunker'] as const){
  test(`${mode}/${signerKind}: same Bot handles standard identity recipients and split-key recipients`,async()=>{
   const remote=signerKind==='bunker'?await mockBunker():undefined;
-  const signer=remote?bunkerSigner(remote.uri,{timeoutMs:1000}):signerKind==='nsec'?nsecSigner(nsecEncode(generateSecretKey())):undefined;
+  const signer=remote?bunkerSigner(remote.uri,{clientSecret:generateSecretKey(),timeoutMs:1000}):signerKind==='nsec'?nsecSigner(nsecEncode(generateSecretKey())):undefined;
   const identity=signer?await identityFromSigner(signer):localNip17Identity(),relay=new Relay();
   const client=new Client(options(identity,relay,mode)),standard=localNip17Identity(),split=localIdentity(),wire=relay.transport();
   const failures:unknown[]=[];client.onError(e=>{failures.push(e);});const bot=new Bot(client);let calls=0;

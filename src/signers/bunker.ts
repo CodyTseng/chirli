@@ -1,63 +1,49 @@
-import WebSocket from 'ws';
-import { generateSecretKey, getPublicKey, getEventHash, verifyEvent, type Event, type EventTemplate } from 'nostr-tools';
+import { getPublicKey, getEventHash, verifyEvent, type Event, type EventTemplate } from 'nostr-tools';
 import { BunkerSigner } from 'nostr-tools/nip46';
-import { AbstractSimplePool } from 'nostr-tools/abstract-pool';
+import { BunkerRelayPool, bunkerRelayURLs } from './bunker-relays.js';
 import { hexKey } from '../protocol.js';
 import { SignerError } from '../errors.js';
 import type { Signer } from '../signer.js';
 
 export interface BunkerOptions {
-  clientSecret?: Uint8Array;
+  clientSecret: Uint8Array;
   timeoutMs?: number;
 }
 
-function relayURL(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return ['ws:', 'wss:'].includes(url.protocol) && !!url.hostname && !url.username && !url.password && !url.hash;
-  }
-  catch {
-    return false;
-  }
-}
-
 /** Lazy, shared NIP-46 handshake; closing releases this session, never logs out/deletes an account. */
-export function bunkerSigner(input: string, options: BunkerOptions = {}): Signer & Required<Pick<Signer, 'close' | 'nip04Encrypt' | 'nip04Decrypt'>> {
+export function bunkerSigner(input: string, options: BunkerOptions): Signer & Required<Pick<Signer, 'close' | 'nip04Encrypt' | 'nip04Decrypt'>> {
   let pointer: {
     pubkey: string;
     relays: string[];
     secret: string | null;
   };
   try {
-    const url = new URL(input), relays = [...new Set(url.searchParams.getAll('relay'))];
-    if (url.protocol !== 'bunker:' || !hexKey(url.hostname) || url.username || url.password || url.port || (url.pathname && url.pathname !== '/') || url.hash || !relays.length || !relays.every(relayURL)) {
+    const url = new URL(input);
+    if (url.protocol !== 'bunker:' || !hexKey(url.hostname) || url.username || url.password || url.port || (url.pathname && url.pathname !== '/') || url.hash) {
       throw new Error();
     }
     pointer = {
       pubkey: url.hostname,
-      relays,
+      relays: bunkerRelayURLs(url.searchParams.getAll('relay')),
       secret: url.searchParams.get('secret')
     };
   }
   catch {
     throw new TypeError('Invalid bunker connection URI');
   }
+  if (!(options?.clientSecret instanceof Uint8Array) || options.clientSecret.length !== 32) {
+    throw new TypeError('clientSecret must be a 32-byte NIP-46 client private key');
+  }
   const timeoutMs = options.timeoutMs ?? 15000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300000) {
     throw new TypeError('timeoutMs must be in 1..300000');
   }
-  const clientSecret = new Uint8Array(options.clientSecret ?? generateSecretKey());
-  getPublicKey(clientSecret);
-  const pool = new AbstractSimplePool({
-    verifyEvent: event => verifyEvent(JSON.parse(JSON.stringify(event))),
-    websocketImplementation: WebSocket as unknown as typeof globalThis.WebSocket,
-    maxWaitForConnection: timeoutMs,
-    enableReconnect: false,
-    enablePing: false,
-  });
+  const clientSecret = new Uint8Array(options.clientSecret);
+  try { getPublicKey(clientSecret); }
+  catch { throw new TypeError('clientSecret must be a valid NIP-46 client private key'); }
   let closed = false, inner: BunkerSigner | undefined, connecting: Promise<BunkerSigner> | undefined;
   let pinnedAccount: string | undefined;
-  const candidates = new Set<BunkerSigner>();
+  const candidates = new Map<BunkerSigner, BunkerRelayPool>();
   const check = () => {
     if (closed) {
       throw new SignerError('session', 'SIGNER_CLOSED');
@@ -86,17 +72,17 @@ export function bunkerSigner(input: string, options: BunkerOptions = {}): Signer
     }
   }
   async function discard(signer: BunkerSigner) {
-    if (!candidates.delete(signer)) {
+    const pool = candidates.get(signer);
+    if (!pool) {
       return;
     }
+    candidates.delete(signer);
     if (inner === signer) {
       inner = undefined;
     }
     await signer.close().catch(() => {
     });
-    if (candidates.size === 0) {
-      pool.close(pointer.relays);
-    }
+    pool.destroy();
   }
   function ensure(): Promise<BunkerSigner> {
     try {
@@ -111,18 +97,17 @@ export function bunkerSigner(input: string, options: BunkerOptions = {}): Signer
     if (connecting) {
       return connecting;
     }
+    const pool = new BunkerRelayPool(timeoutMs);
     const candidate = BunkerSigner.fromBunker(clientSecret, {
       ...pointer, relays: [...pointer.relays]
     }, {
       pool,
       timeout: timeoutMs,
     });
-    candidates.add(candidate);
+    candidates.set(candidate, pool);
     const pending = (async () => {
       try {
-        await bounded('connect', candidate.connect({
-          name: 'Chirli'
-        }));
+        await bounded('connect', candidate.connect({ name: 'Chirli' }));
         pointer.secret = null; // Reconnect with the same client key, never reuse the single-use token.
         const account = await bounded('get_public_key', candidate.getPublicKey());
         if (!hexKey(account) || (pinnedAccount && pinnedAccount !== account)) {
@@ -130,6 +115,7 @@ export function bunkerSigner(input: string, options: BunkerOptions = {}): Signer
         }
         pinnedAccount = account;
         await bounded('switch_relays', candidate.switchRelays());
+        bunkerRelayURLs(candidate.bp.relays);
         check();
         inner = candidate;
         return candidate;
@@ -189,10 +175,7 @@ export function bunkerSigner(input: string, options: BunkerOptions = {}): Signer
       clientSecret.fill(0);
       pointer.secret = null;
       inner = undefined;
-      await Promise.all([...candidates].map(candidate => candidate.close().catch(() => {
-      })));
-      candidates.clear();
-      pool.destroy();
+      await Promise.all([...candidates.keys()].map(discard));
     },
   };
 }

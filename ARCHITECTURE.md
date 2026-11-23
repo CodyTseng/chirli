@@ -74,6 +74,8 @@ A remote signer sees NIP-44 plaintext it processes. Operational signer failures 
 
 One nostr-tools AbstractRelay per configured relay URL shares operations and AUTH; the Node socket adapter preserves exact paths and queries. Connect/EOSE/ACK/AUTH budgets are separate. Inbox owns durable reconnect demand and bounded overlap paging; the physical pool does not independently reconnect.
 
+The NIP-46 signer uses an `AbstractSimplePool` adapter backed by its own `WebSocketTransport` instance. It shares the physical relay implementation with Bot traffic and reopens missing response subscriptions on demand. Closing the signer releases its relay connections, including connections to relays returned by `switch_relays`.
+
 Recovered frames remain history. Saturated timestamp boundaries, page limits or failed reads leave coverage incomplete. No full archive or durable undecryptable-envelope quarantine is promised.
 
 Store applies AES-GCM when a storage key is supplied, otherwise tagged plaintext. MessageStorage owns message records, duplicate detection and processing state. Its default sqliteMessageStorage uses indexed native queries. Internal SQLite owns outbox, keys, metadata and temporary cross-store handoffs, and accepts only a database path. Failed handoffs are replayed without replacing existing message state; internal message copies are removed after successful insertion. The SDK supports one active Client/process per account database. Distributed claims, admission/backpressure limits, pruning, forward secrecy and exactly-once external effects remain outside its scope.

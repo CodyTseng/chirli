@@ -6,7 +6,7 @@ Create a Bot with a signer. Local nsec and remote bunker credentials use the sam
 import { Bot, nsecSigner, bunkerSigner } from 'chirli';
 
 const signer = nsecSigner(nsecFromYourSecretManager);
-// Alternatively: const signer = bunkerSigner(bunkerUri);
+// Alternatively: const signer = bunkerSigner(bunkerUri, { clientSecret: bunkerClientKeyFromYourSecretManager });
 const bot = new Bot({
   signer,
   database: './inbox.sqlite',
@@ -37,14 +37,16 @@ The application always owns the signer. Bot never calls its optional `close()`, 
 ## Remote bunker
 
 ```ts
-const signer = bunkerSigner(bunkerUri);
+const signer = bunkerSigner(bunkerUri, { clientSecret: bunkerClientKeyFromYourSecretManager });
 ```
 
 A bunker URI identifies the service key. Chirli resolves the account key through NIP-46 and checks it on reconnect. A timed-out operation discards the connection. Later requests can reconnect using the same client key.
 
+Bunker connections use the same WebSocket transport as the Bot with a separate pool. The pool starts with the URI's relay URLs and can accept an updated list through the optional `switch_relays` RPC supported by nostr-tools. A request is sent after its response subscription is issued on that relay. It can receive the response before EOSE. Subsequent requests can reopen disconnected replicas. The bunker pool uses the shared heartbeat and idle defaults. `timeoutMs` sets the WebSocket connection deadline and caps the default relay publication deadline. Bunker relays must accept the NIP-46 traffic without relay-side NIP-42 authentication.
+
 Approve requests in the signer's own app or configure its permissions ahead of time. If the signer sends a NIP-46 URL challenge, the request fails.
 
-Persist and reuse `clientSecret` to keep the same bunker client identity across process restarts. Use `timeoutMs` to change the default 15-second deadline.
+Supply a valid 32-byte NIP-46 client private key as `clientSecret`. Generate a dedicated key before first pairing and keep it in your application's secret store. To reconnect after a process restart, reuse that key and remove a consumed one-time `secret` parameter from the bunker URI. The remote signer must still recognize the client's authorization. Use `timeoutMs` to change the default 15-second deadline.
 
 Closing releases the session without logout or deletion of remote credentials. The remote signer sees plaintext passed to its encryption/decryption methods.
 

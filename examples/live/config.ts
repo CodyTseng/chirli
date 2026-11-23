@@ -1,11 +1,11 @@
 import { DEFAULT_DISCOVERY_RELAYS, DEFAULT_DM_RELAYS, DEFAULT_READ_RELAYS, DEFAULT_WRITE_RELAYS } from 'chirli';
 export class ConfigurationError extends Error {}
-export interface LiveConfiguration {
-  nsec?:string;bunker?:string;bunkerClientKey?:Uint8Array;
+export type LiveConfiguration = {
+  nsec?:string;
   storageKey?:Uint8Array;relays:string[];readRelays:string[];writeRelays:string[];discoveryRelays:string[];database:string;mode:'nip17'|'nip4e';
   allowlist?:string[];rotation?:{intervalMs:number;retainLegacyKeys:number;legacyMaxAgeMs?:number};
   outboxRetryMs:number;timing:boolean;relayTimeoutMs:number|undefined;keySync:false|{timeoutMs:number};
-}
+} & ({bunker:string;bunkerClientKey:Uint8Array}|{bunker?:undefined;bunkerClientKey?:Uint8Array});
 export function relayURLs(value:string):string[]{
   const relays=[...new Set(value.split(',').map(x=>x.trim()).filter(Boolean))];
   if(!relays.length||!relays.every(value=>{
@@ -30,6 +30,10 @@ function positive(value:string|undefined,name:string,fallback?:number):number{
 export function configuration(env:NodeJS.ProcessEnv):LiveConfiguration{
   const nsec=env.CHIRLI_NSEC?.trim()||undefined,bunker=env.CHIRLI_BUNKER?.trim()||undefined;
   if(nsec&&bunker)throw new ConfigurationError('Set only one of CHIRLI_NSEC or CHIRLI_BUNKER; omit both to reuse or generate a local identity.');
+  if(bunker&&env.CHIRLI_BUNKER_CLIENT_KEY===undefined)throw new ConfigurationError('CHIRLI_BUNKER_CLIENT_KEY is required with CHIRLI_BUNKER.');
+  const bunkerConfig=bunker===undefined
+    ? {bunker,bunkerClientKey:env.CHIRLI_BUNKER_CLIENT_KEY===undefined?undefined:bytes(env.CHIRLI_BUNKER_CLIENT_KEY,'CHIRLI_BUNKER_CLIENT_KEY')}
+    : {bunker,bunkerClientKey:bytes(env.CHIRLI_BUNKER_CLIENT_KEY,'CHIRLI_BUNKER_CLIENT_KEY')};
   const mode=env.CHIRLI_MODE??'nip17';if(mode!=='nip17'&&mode!=='nip4e')throw new ConfigurationError('CHIRLI_MODE must be nip17 or nip4e.');
   const database=env.CHIRLI_DATABASE??'.chirli/bot.sqlite';if(!database.trim()||database===':memory:'||/[\r\n\0]/.test(database))throw new ConfigurationError('CHIRLI_DATABASE must be a persistent file path for these live bots.');
   let rotation:LiveConfiguration['rotation'];
@@ -48,8 +52,7 @@ export function configuration(env:NodeJS.ProcessEnv):LiveConfiguration{
   if(env.CHIRLI_KEY_SYNC!==undefined&&!['0','1'].includes(env.CHIRLI_KEY_SYNC))throw new ConfigurationError('CHIRLI_KEY_SYNC must be 0 or 1.');
   const syncTimeout=positive(env.CHIRLI_KEY_SYNC_TIMEOUT_MS,'CHIRLI_KEY_SYNC_TIMEOUT_MS',30000);if(syncTimeout<100||syncTimeout>120000)throw new ConfigurationError('CHIRLI_KEY_SYNC_TIMEOUT_MS must be in 100..120000.');
   const common=env.CHIRLI_RELAYS?.trim()?relayURLs(env.CHIRLI_RELAYS):undefined;
-  return{nsec,bunker,storageKey:env.CHIRLI_STORAGE_KEY?.trim()?bytes(env.CHIRLI_STORAGE_KEY.trim(),'CHIRLI_STORAGE_KEY'):undefined,
-    bunkerClientKey:env.CHIRLI_BUNKER_CLIENT_KEY===undefined?undefined:bytes(env.CHIRLI_BUNKER_CLIENT_KEY,'CHIRLI_BUNKER_CLIENT_KEY'),
+  return{nsec,...bunkerConfig,storageKey:env.CHIRLI_STORAGE_KEY?.trim()?bytes(env.CHIRLI_STORAGE_KEY.trim(),'CHIRLI_STORAGE_KEY'):undefined,
     relays:env.CHIRLI_DM_RELAYS===undefined?(common??[...DEFAULT_DM_RELAYS]):relayURLs(env.CHIRLI_DM_RELAYS),
     readRelays:env.CHIRLI_READ_RELAYS===undefined?(common??[...DEFAULT_READ_RELAYS]):env.CHIRLI_READ_RELAYS.trim()===''?[]:relayURLs(env.CHIRLI_READ_RELAYS),
     discoveryRelays:env.CHIRLI_DISCOVERY_RELAYS===undefined?(common??[...DEFAULT_DISCOVERY_RELAYS]):env.CHIRLI_DISCOVERY_RELAYS.trim()===''?[]:relayURLs(env.CHIRLI_DISCOVERY_RELAYS),
