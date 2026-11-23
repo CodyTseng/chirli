@@ -29,6 +29,7 @@ export class Bot<S = Record<string, unknown>> {
   #options: ClientOptions;
 
   constructor({ sessionStore, ...options }: BotOptions<S>) {
+    if ('allowlist' in options) throw new TypeError('Use inboundPolicy: allowlist(pubkeys) for sender authorization');
     this.#options = {
       ...options,
       relays: options.relays?.slice(),
@@ -39,7 +40,6 @@ export class Bot<S = Record<string, unknown>> {
       blossomServers: options.blossomServers?.slice(),
       blossomDownloadOrigins: options.blossomDownloadOrigins?.slice(),
       publicInbox: options.publicInbox ? { ...options.publicInbox, relays: options.publicInbox.relays.slice(), thread: options.publicInbox.thread ? {...options.publicInbox.thread} : undefined } : undefined,
-      allowlist: options.allowlist?.slice(),
       storageKey: options.storageKey?.slice(),
     };
     this.#handlers = new BotHandlers(undefined, { sessionStore });

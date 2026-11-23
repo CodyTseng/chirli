@@ -37,8 +37,7 @@ Construct the Bot and register handlers before calling `start()`. `start()` reso
 | `discoveryRelays` | Extra recipients for public account announcements; `[]` disables this extra fan-out |
 | `blossomServers` | Ordered upload servers; defaults to `https://blossom.jumble.social/`; `[]` disables file uploads |
 | `blossomDownloadOrigins` | Optional trusted HTTPS origins for downloads served by a separate CDN |
-| `allowlist` | Legacy canonical identity pubkeys; omitted accepts all, `[]` denies external senders |
-| `inboundPolicy` | Optional synchronous verified-sender policy; use exported `allowlist(pubkeys)` before persistence; combines restrictively with legacy allowlist |
+| `inboundPolicy` | Optional synchronous policy over verified senders, evaluated before persistence |
 | `mode` | `nip17` default, or explicit `nip4e` split messaging keys |
 | `keyRotation` | Omitted/false, or split-mode rotation settings; see [keys](KEYS.md) |
 | `nip4eCompatibility` | False suppresses identity-key 10044 publication; dual intake stays enabled |
@@ -257,7 +256,7 @@ Command removal is expressed by the next startup registry, not a runtime method.
 
 ## Optional official components
 
-`allowlist(pubkeys:readonly string[]):InboundPolicy` snapshots and validates lowercase hex identity keys. Configure `inboundPolicy:allowlist(pubkeys)` in Bot options. `InboundPolicy` is `(authenticatedSender:string)=>boolean`, evaluated synchronously after envelope/author verification and before receipt persistence, and again before pending startup/retry business work. The legacy `allowlist` option delegates to the same function; both policies compose with AND, retaining own-copy bypass. Empty denies all external senders. See [ACCESS.md](ACCESS.md#official-inbound-policy).
+`allowlist(pubkeys: readonly string[]): InboundPolicy` snapshots and validates lowercase hex identity keys. Configure `inboundPolicy: allowlist(pubkeys)` in Bot options. `InboundPolicy` is `(authenticatedSender: string) => boolean`, evaluated synchronously after envelope or author verification and before receipt persistence. It runs again before pending work resumes at startup or on retry. Own copies bypass the policy. `allowlist([])` denies all external senders. [Sender authorization](ACCESS.md#official-inbound-policy)
 
 `requestTiming({onTiming})` returns ordinary `bot.use()` middleware. Register it before the processing middleware you want to measure. `RequestTiming` is a frozen object containing only readonly `durationMs:number` (monotonic elapsed milliseconds) and `outcome:'success'|'failure'`. `RequestTimingObserver` may return void or a Promise; synchronous exceptions and rejected observer promises are isolated, and the observer is not awaited. Successful processing stays successful, original handler errors stay the same errors and remain retryable. No context, body, sender, event ID, route inferred from text, credentials or raw error is passed to telemetry. There is no default logger.
 

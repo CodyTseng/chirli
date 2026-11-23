@@ -138,6 +138,8 @@ function officialComponents(signer: Signer) {
   bot.use(allowlist([]));
   // @ts-expect-error An asynchronous policy cannot authorize incoming messages.
   void new Bot({ signer, inboundPolicy: async () => true });
+  // @ts-expect-error Configure sender authorization through inboundPolicy.
+  void new Bot({ signer, allowlist: [] });
 }
 void officialComponents;
 

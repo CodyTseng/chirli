@@ -106,7 +106,7 @@ The application closes Bot before its injected signer, transport or storage. Bot
 
 Demos deliberately print their own scripted text. The SDK has no default message logger. These walkthroughs do not establish public-relay availability, physical-device interoperability or production readiness; see [interoperability](../docs/INTEROPERABILITY.md) and [security boundaries](../SECURITY.md).
 
-The [allowlist example](allowlist.ts) now uses `inboundPolicy:allowlist([...])` and optional `bot.use(requestTiming({onTiming}))`. It asserts that denied messages produce no timing/business effects and accepted processing emits one safe timing outcome. Run `npm run example:allowlist` after building; all keys and transports remain disposable/in-memory. The legacy constructor allowlist array remains supported.
+Run `npm run example:allowlist` after building to try `inboundPolicy: allowlist([...])` with disposable keys and an in-memory transport. The example uses `bot.use(requestTiming({onTiming}))` to show that only accepted messages reach processing middleware. [Allowlist example](allowlist.ts)
 
 ## Public notes, comments and DMs
 

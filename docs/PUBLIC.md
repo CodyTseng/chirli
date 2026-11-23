@@ -25,7 +25,7 @@ The example URLs are placeholders. Public inbox URLs must be chosen explicitly b
 
 Public invocation must start at content index zero. Either `/ping@npub...` or `/ping@nostr:npub...` explicitly selects the bot; no `p` tag is required. An unqualified `/ping` is accepted only when the distinct lowercase `p` targets consist solely of this bot. A conflicting qualifier remains rejected even with the bot's `p` tag. An ordinary structural reply or mention is never an invocation. These stricter public targeting rules are Chirli policy; NIP-CD itself permits multiple executors to match an unqualified invocation. Public `handle()`/middleware runs only for admitted registered invocations, not arbitrary notes. DM fallback behavior is unchanged.
 
-Signatures, supported kind, structural references, sender policy, source, invocation and scopes are checked before public persistence or business middleware. Own public events are ignored. `allowlist`/`inboundPolicy` sees the signed public author identity; existing DM identity validation remains unchanged. Commands can additionally use `authorize`. Middleware receives a detached input; changing it cannot change the internal verified routing input.
+Signatures, supported kind, structural references, sender policy, source, invocation and scopes are checked before public persistence or business middleware. Own public events are ignored. `inboundPolicy` receives the verified author of a signed public event. Commands can additionally use `authorize`. Middleware receives a detached copy of the verified input.
 
 ## Shared context and privacy
 

@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { Bot, WebSocketTransport, bunkerSigner, nsecSigner, type Signer } from 'chirli';
+import { Bot, WebSocketTransport, allowlist, bunkerSigner, nsecSigner, type Signer } from 'chirli';
 import { generatedIdentity } from './identity.js';
 import { configuration, ConfigurationError } from './config.js';
 import { reportDiagnostic } from './diagnostics.js';
@@ -89,7 +89,7 @@ See examples/live/README.md for persistent keys, bunker, allowlist and relay set
       readRelays: config.readRelays,
       writeRelays: config.writeRelays,
       discoveryRelays: config.discoveryRelays,
-      allowlist: config.allowlist,
+      inboundPolicy: config.allowlist === undefined ? undefined : allowlist(config.allowlist),
       keySync: config.keySync,
     });
 

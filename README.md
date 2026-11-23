@@ -172,7 +172,7 @@ To remove or rename a command, update the declared command set and restart with 
 
 All registered commands are public on write relays. Startup adds or updates definitions and withdraws commands absent from the local registry. Definitions use kind `31992` and withdrawals use kind `5`; there is no executor-list event. User-installed kind `10992` lists are untouched.
 
-Definitions and scopes grant no execution permission. Configure `allowlist` on Bot or an `authorize` callback for individual typed commands. See [command lifecycle](docs/NIP-CD.md) and [sender authorization](docs/ACCESS.md).
+Definitions and scopes describe command availability. Use `inboundPolicy` to authorize senders or an `authorize` callback for an individual typed command. [Command lifecycle](docs/NIP-CD.md) · [Sender authorization](docs/ACCESS.md)
 
 ## Configuration
 
@@ -182,7 +182,7 @@ Definitions and scopes grant no execution permission. Configure `allowlist` on B
 | `database` | SQLite path; defaults to `psstpsst.sqlite` |
 | `messageStorage` | Message backend; defaults to `sqliteMessageStorage` |
 | `storageKey` | Optional 32-byte key for local payload encryption |
-| `allowlist` | Allowed sender public keys; omitted accepts all, `[]` denies all |
+| `inboundPolicy` | Optional synchronous gate for verified incoming senders |
 | `relays` | Common list for each omitted relay role |
 | `dmRelays` | Receive and deliver private messages |
 | `readRelays` | Query public metadata |
@@ -251,7 +251,7 @@ bot.command({ command: 'ping', scopes: ['kind:14'] }, async ctx => { await ctx.r
 await bot.start(); // Command declarations remain automatic.
 ```
 
-`inboundPolicy` runs after identity verification but before incoming history, peer evidence, observers or business callbacks. `allowlist([])` denies every external sender; supplied keys are snapshotted and must be lowercase hex identity keys. Existing `allowlist:[...]` options remain supported; configuring both requires both to allow. An inbound policy is not ordinary `bot.use()` middleware, which runs after receipt persistence. See [access policy](docs/ACCESS.md).
+`inboundPolicy` runs after identity verification and before incoming history, peer evidence, observers or business callbacks. `allowlist` snapshots the supplied lowercase hex identity keys. `allowlist([])` denies every external sender. Middleware registered through `bot.use()` runs after receipt persistence. [Sender authorization](docs/ACCESS.md)
 
 `requestTiming({onTiming})` is optional ordinary middleware. Its observer receives only `{durationMs,outcome:'success'|'failure'}` for the downstream processing chain. It never reads message context or error details, does not log by default and cannot let observer failures change processing. It excludes receipt/decryption, queue waiting and session commit after the chain; no command route name is inferred from text. See [API](docs/API.md).
 

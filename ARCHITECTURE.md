@@ -35,7 +35,7 @@ Stop cancels subscription/reconnect demand and drains intake, handlers and SDK w
 
 ## Incoming messages
 
-Giftwrap and seal signatures, rumor hash/author, times and one-to-one routing are verified before persistence. Sender allowlist checks follow authentication and precede peer evidence, history insertion and dispatch.
+Giftwrap and seal signatures, rumor hash/author, times and one-to-one routing are verified before persistence. The optional inbound policy runs after authentication and before peer evidence, history insertion and dispatch.
 
 A temporary rumor handoff and its key evidence commit atomically in internal SQLite before insertion into MessageStorage. The handoff is removed after durable insertion. `(account/mode, rumor ID)` deduplicates wrappers across relays and restarts.
 
@@ -90,7 +90,7 @@ See [API](docs/API.md), [command lifecycle](docs/NIP-CD.md), [key custody](docs/
 
 ## Optional official policy and timing
 
-`inbound-policy.ts` supplies the pure snapshot identity allowlist and InboundPolicy type. Client keeps its existing verified-intake and pending-work gates, applying the legacy restriction and optional inboundPolicy through the same implementation. Only the authenticated sender string crosses that hook. `request-timing.ts` supplies ordinary downstream middleware with a frozen duration/outcome metric, no context inspection and isolated nonblocking observers. Bot dispatch, sessions and automatic command reconciliation remain unchanged.
+`inbound-policy.ts` supplies an identity allowlist helper and the `InboundPolicy` type. Client passes only the authenticated sender string to the optional policy at verified intake and before dispatching pending work. `request-timing.ts` supplies downstream middleware with a frozen duration and outcome metric and isolates observer callbacks from processing.
 
 ## Public input isolation
 

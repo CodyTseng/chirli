@@ -1,5 +1,5 @@
 export type { ReplyFileOptions, SendFileOptions, UploadFileOptions, UploadFileResult } from './blossom.js';
-export type { MessageObserver, ErrorHandler, IntakeMetadata, SenderAllowlist, SendOptions, SendResult } from './client.js';
+export type { MessageObserver, ErrorHandler, IntakeMetadata, SendOptions, SendResult } from './client.js';
 export { Bot, type Context, type CommandContext, type MessageHandler, type Middleware, type Next, type BotCommandOptions, type CommandHandler, type BotOptions, type Session, type SessionStore } from './bot.js';
 export { generateSecretKey, getPublicKey, type Rumor } from './protocol.js';
 export { WebSocketTransport, DEFAULT_RELAY_TIMEOUTS, type RelayTimeouts, type WebSocketTransportOptions, type Transport, type Subscription, type RelayTiming, type RelayTimingObserver } from './relay.js';

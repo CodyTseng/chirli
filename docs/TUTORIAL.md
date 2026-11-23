@@ -133,7 +133,7 @@ All commands are public on configured write relays. Their definitions are synchr
 
 - To remove a command, omit it from the complete registry and restart with the same account/relays; startup publishes the withdrawal. Runtime additions remain supported.
 - Declare a typed argument schema in `command()` for typed arguments. Registration accepts an `authorize` callback.
-- Use Bot `allowlist` to authorize senders before persistence and handlers.
+- Set `inboundPolicy: allowlist(pubkeys)` to authorize senders before persistence and handlers.
 - Use `discoverCommands()` to inspect metadata; discovery never installs handlers.
 
 Commands are declared automatically as kind `31992`, with `d` derived from the command name. Withdrawals use kind `5`; user-installed kind `10992` lists are untouched. See [commands](NIP-CD.md) for the complete contract.

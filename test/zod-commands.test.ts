@@ -2,13 +2,13 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {z} from 'zod';
 import {npubEncode} from 'nostr-tools/nip19';
-import {Bot,InvalidArgsError,requestTiming,nsecSigner,generateSecretKey,encodeCommandDefinition,type Input,type Context,type SessionStore} from '../src/index.js';
+import {Bot,InvalidArgsError,allowlist,requestTiming,nsecSigner,generateSecretKey,encodeCommandDefinition,type Input,type Context,type SessionStore,type InboundPolicy} from '../src/index.js';
 import {localNip17Identity} from '../src/protocol.js';
 import {MemoryRelay} from '../examples/_support.js';
 import {commentReply} from '../src/public-thread.js';
 const urls=['ws://zod-memory.invalid'];
-function fixture(mode:'nip17'|'nip4e'='nip17',allowlist?:readonly string[],sessionStore?:SessionStore<Record<string,unknown>>){
- const network=new MemoryRelay(),user=new Bot({signer:nsecSigner(generateSecretKey()),transport:network.transport(),relays:urls,database:':memory:'}),bot=new Bot({mode,allowlist,sessionStore,signer:nsecSigner(generateSecretKey()),transport:network.transport(),relays:urls,database:':memory:',publicInbox:{relays:urls}});
+function fixture(mode:'nip17'|'nip4e'='nip17',inboundPolicy?:InboundPolicy,sessionStore?:SessionStore<Record<string,unknown>>){
+ const network=new MemoryRelay(),user=new Bot({signer:nsecSigner(generateSecretKey()),transport:network.transport(),relays:urls,database:':memory:'}),bot=new Bot({mode,inboundPolicy,sessionStore,signer:nsecSigner(generateSecretKey()),transport:network.transport(),relays:urls,database:':memory:',publicInbox:{relays:urls}});
  return{bot,user,network,async start(){await user.start();await bot.start();},async send(text:string){const result=await user.send(bot.pubkey,text);await bot.idle();await user.idle();return result;},async close(){await bot.close();await user.close();}};
 }
 test('Zod object order, metadata, required and enum choices produce unchanged 31992 wire tags',async()=>{
@@ -63,7 +63,7 @@ test('application-thrown InvalidArgsError is a business error and remains retrya
 });
 
 test('entry allowlist denial precedes argument validation and every error-response hook',async()=>{
- const f=fixture('nip17',[]);let validation=0,middleware=0,errors=0;
+ const f=fixture('nip17',allowlist([]));let validation=0,middleware=0,errors=0;
  f.bot.command({command:'need',scopes:['kind:14','kind:1'],args:z.object({n:z.bigint().refine(()=>{validation++;return false;})})},()=>assert.fail());f.bot.use(async(_ctx,next)=>{middleware++;await next();});f.bot.catch(()=>{errors++;});
  try{await f.start();await f.send('/need 0');const author=localNip17Identity(),event=await author.sign({kind:1,created_at:1,tags:[],content:`/need@${npubEncode(f.bot.pubkey)} 0`});assert.equal(await f.bot.receive(event,'live',{relay:urls[0]}),false);await f.bot.idle();assert.deepEqual([validation,middleware,errors],[0,0,0]);assert.equal(f.bot.history(f.user.pubkey).messages.length,0);}finally{await f.close();}
 });

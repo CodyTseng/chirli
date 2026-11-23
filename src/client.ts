@@ -1,7 +1,7 @@
 import { encryptAttachment, normalizeBlossomDownloadOrigins, normalizeBlossomServers, snapshotFile, uploadFile, type ReplyFileOptions, type SendFileOptions, type UploadFileOptions, type UploadFileResult } from './blossom.js';
 import { PublicInbox, type PublicInboxOptions, type PublicInput } from './public-inbox.js';
 import { inputOf, threadLimit, type ThreadOptions, type ThreadResult } from './public-thread.js';
-import { allowlist as identityAllowlist, type InboundPolicy } from './inbound-policy.js';
+import type { InboundPolicy } from './inbound-policy.js';
 import {getEventHash, type Event} from 'nostr-tools';
 import { identityFromSigner } from './signers.js';
 import type { Signer } from './signer.js';
@@ -26,9 +26,6 @@ import type { MessageState } from './storage.js';
 import type { MessageStorage } from './message-storage.js';
 import { EncryptionKeys, type AnnounceOptions, type KeyRotationOptions } from './keys.js';
 
-/** Canonical lowercase hex identity pubkeys. Omitted accepts all; [] denies all incoming senders. */
-export type SenderAllowlist = readonly string[];
-
 export interface SendResult {
   id: string;
   status: 'relay-accepted' | 'pending';
@@ -47,7 +44,6 @@ export interface CommonClientOptions {
   publicInbox?: PublicInboxOptions;
   metadataCache?: false | MetadataCacheOptions;
   keySync?: false | KeySyncOptions;
-  allowlist?: SenderAllowlist;
   /** Optional synchronous gate over the verified external sender, before persistence. */
   inboundPolicy?: InboundPolicy;
   nip4eCompatibility?: boolean;
@@ -125,7 +121,7 @@ export class Client {
 
   readonly mode: ProtocolMode;
   readonly nip4eCompatibility: boolean;
-  private readonly inboundPolicies: readonly InboundPolicy[];
+  private readonly inboundPolicy?: InboundPolicy;
   private keys: EncryptionKeys;
   private rotationTimer?: ReturnType<typeof setTimeout>;
   private protocol: MessagingProtocol;
@@ -185,10 +181,7 @@ export class Client {
     if (options.inboundPolicy !== undefined && typeof options.inboundPolicy !== 'function') {
       throw new TypeError('inboundPolicy must be a synchronous identity policy');
     }
-    this.inboundPolicies = [
-      ...(options.allowlist === undefined ? [] : [identityAllowlist(options.allowlist)]),
-      ...(options.inboundPolicy === undefined ? [] : [options.inboundPolicy]),
-    ];
+    this.inboundPolicy = options.inboundPolicy;
     this.account = {
       ...identity, oldEncryptionKeys: identity.oldEncryptionKeys?.map(key => new Uint8Array(key))
     };
@@ -434,15 +427,15 @@ export class Client {
   }
 
   private allowsSender(identity: string) {
-    return this.inboundPolicies.every(policy => {
-      const accepted = policy(identity);
-      if (typeof accepted !== 'boolean') {
-        // JavaScript callers cannot accidentally authorize with a Promise or truthy value.
-        void Promise.resolve(accepted).catch(() => {});
-        throw new TypeError('inboundPolicy must return a boolean synchronously');
-      }
-      return accepted;
-    });
+    const policy = this.inboundPolicy;
+    if (policy === undefined) return true;
+    const accepted = policy(identity);
+    if (typeof accepted !== 'boolean') {
+      // JavaScript callers cannot accidentally authorize with a Promise or truthy value.
+      void Promise.resolve(accepted).catch(() => {});
+      throw new TypeError('inboundPolicy must return a boolean synchronously');
+    }
+    return accepted;
   }
 
   private enqueue(message: Message) {

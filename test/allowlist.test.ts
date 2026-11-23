@@ -8,7 +8,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { finalizeEvent, getEventHash, nip44, type Event } from 'nostr-tools';
-import { allowlist, bunkerSigner, generateSecretKey, sqliteMessageStorage, getPublicKey, WebSocketTransport, type SenderAllowlist, type Transport } from '../src/index.js';
+import { allowlist, bunkerSigner, generateSecretKey, sqliteMessageStorage, getPublicKey, WebSocketTransport, type Transport } from '../src/index.js';
 import { BotHandlers as Bot } from '../src/bot-handlers.js';
 import { SQLiteStorage } from '../src/storage-sqlite.js';
 import { rumor, splitEnvelope, standardEnvelope, wrap } from '../src/protocol.js';
@@ -20,11 +20,11 @@ const silent:Transport={query:async()=>[],publish:async()=>{},close(){},subscrib
 const config=(identity=localNip17Identity())=>({identity,relays:urls,transport:silent,database:':memory:',storageKey:generateSecretKey()});
 async function until(check:()=>boolean){for(let i=0;i<200;i++){if(check())return;await new Promise(r=>setTimeout(r,10));}assert.fail('timeout');}
 
-for(const option of ['legacy','policy'] as const)for(const mode of ['nip17','nip4e'] as const)for(const protocol of ['standard','extension'] as const){
- test(`${option}/${mode}/${protocol}: allow only authenticated identities before listeners, commands, session and storage`,async()=>{
+for(const mode of ['nip17','nip4e'] as const)for(const protocol of ['standard','extension'] as const){
+ test(`${mode}/${protocol}: allow only authenticated identities before listeners, commands, session and storage`,async()=>{
   const identity=localNip17Identity(),allowed=localIdentity(),denied=localIdentity();
   const sessions = new Map<string, Partial<{ count: number }>>();
-  const client = new Client({ ...config(identity), mode, ...(option==='legacy'?{allowlist:[allowed.pubkey]}:{inboundPolicy:allowlist([allowed.pubkey])}) });
+  const client = new Client({ ...config(identity), mode, inboundPolicy: allowlist([allowed.pubkey]) });
   const bot = new Bot(client, {
     sessionStore: {
       get(peer: string) { sessionReads++; return sessions.get(peer); },
@@ -52,13 +52,12 @@ for(const option of ['legacy','policy'] as const)for(const mode of ['nip17','nip
  });
 }
 
-test('missing versus empty, invalid formats and immutable configuration snapshots',async()=>{
+test('omitting the policy accepts external senders, while an empty allowlist only admits own copies',async()=>{
  const identity=localNip17Identity(),sender=localNip17Identity(),event=await wrap(rumor(sender.pubkey,identity.pubkey,'hello'),sender,identity.pubkey,identity.pubkey,standardEnvelope);
- for(const allowlist of [undefined,[]] as const){const client=new Client({...config(identity),allowlist});try{assert.equal(await client.receive(event,'history'),allowlist===undefined);}finally{await client.close();}}
- for(const allowlist of [null,'anything',['invalid'],[sender.pubkey.toUpperCase()],new Array(1)] as unknown[]){assert.throws(()=>new Client({...config(identity),allowlist:allowlist as SenderAllowlist}),/allowlist/);}
- const configured=[sender.pubkey],client=new Client({...config(identity),allowlist:configured});configured.splice(0,1,getPublicKey(generateSecretKey()));
+ const client=new Client(config(identity));
  try{assert.equal(await client.receive(event,'history'),true);}finally{await client.close();}
- const denyAll=new Client({...config(identity),allowlist:[]});try{
+ const denyAll=new Client({...config(identity),inboundPolicy:allowlist([])});try{
+  assert.equal(await denyAll.receive(event,'history'),false);
   const own=await wrap(rumor(identity.pubkey,sender.pubkey,'own outgoing'),identity,identity.pubkey,identity.pubkey,standardEnvelope);
   assert.equal(await denyAll.receive(own,'history'),true,'own copies are outgoing bookkeeping, never incoming handlers');assert.equal(denyAll.history(sender.pubkey).messages[0].direction,'outgoing');
  }finally{await denyAll.close();}

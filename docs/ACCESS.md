@@ -1,26 +1,26 @@
 # Incoming sender allowlist
 
-Set `allowlist` to control which authenticated accounts can send messages to your Bot.
+Use the `allowlist` helper as an inbound policy to control which authenticated accounts can send messages to your Bot.
 
 ```ts
-import { Bot } from 'chirli';
+import { Bot, allowlist } from 'chirli';
 
 const bot = new Bot({
   signer,
   database: './chirli.sqlite',
-  allowlist: [trustedIdentityPubkey],
+  inboundPolicy: allowlist([trustedIdentityPubkey]),
 });
 ```
 
-| Value | Incoming policy |
+| `inboundPolicy` value | Incoming policy |
 | --- | --- |
 | Omitted | Accept all authenticated senders |
-| `[]` | Deny all external senders |
-| A list of pubkeys | Accept only the listed senders |
+| `allowlist([])` | Deny all external senders |
+| `allowlist(pubkeys)` | Accept only the listed senders |
 
 Use lowercase 64-character hex **account public keys**. Convert an `npub` to hex in your application. The account key is the author of the verified seal and the decrypted message. A giftwrap author, split messaging key or bunker connection key cannot identify an allowed sender.
 
-Chirli copies the allowlist when constructing the Bot. To change the policy, close the Bot and create a new one with the desired list and the same signer, mode and database.
+The helper snapshots the list when called. To replace the list, create a new Bot with a new policy and the same signer, mode and database.
 
 ## What happens to denied messages
 
@@ -34,13 +34,6 @@ Run `npm run example:allowlist` after building to try the policy with disposable
 
 ## Official inbound policy
 
-```ts
-import { Bot, allowlist } from 'chirli';
-const bot = new Bot({ signer, inboundPolicy: allowlist([trustedIdentityPubkey]) });
-```
-
 The optional `inboundPolicy` hook receives only the authenticated sender's lowercase hex identity string and must return a synchronous boolean. It cannot mutate validated messages because no message object is supplied. `allowlist(pubkeys)` validates and snapshots the array; an empty array denies all external senders. It is used at both the post-decrypt/pre-persistence gate and pending startup/retry gate. Historical/reconnect intake uses the same gate. Own copies keep their existing bypass and are not dispatched as incoming messages; signed same-identity account-control events remain outside this external-message policy.
 
-The old `allowlist:[...]` option delegates to the same official implementation. When both options are supplied, the legacy restriction is checked first and both must pass; neither can broaden the other. Omit both for the existing open intake behavior. Denied new messages create no history/evidence/session/reply or business/timing middleware effect. Previously accepted history remains readable, and revoked pending work is consumed without dispatch as above.
-
-Custom `InboundPolicy` functions should be pure/reentrant because the SDK can check them more than once. False is deliberate denial; exceptions and non-boolean/Promise results reject processing before new persistence rather than authorizing through truthiness. Operational policy failures can block history checkpoint progress and leave pending work retryable. `bot.use(allowlist(...))` is not the API: ordinary middleware runs too late to guarantee no incoming history. Use `inboundPolicy` explicitly.
+Custom `InboundPolicy` functions should be pure and reentrant because the SDK can check them more than once. Returning `false` explicitly denies the sender. Exceptions and non-boolean results reject processing before new persistence. Operational policy failures can block history checkpoint progress and leave pending work retryable. Middleware registered with `bot.use()` runs after receipt persistence.

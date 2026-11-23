@@ -13,16 +13,21 @@ test('official allowlist snapshots and validates identity keys, including empty 
  assert.equal(policy(identity.pubkey),true);assert.equal(policy(other.pubkey),false);assert.equal(allowlist([])(identity.pubkey),false);
  for(const values of [['bad'],[identity.pubkey.toUpperCase()],['npub1bad'],new Array(1),null,'not-an-array'])assert.throws(()=>allowlist(values as never),/lowercase hex/);
 });
-test('legacy allowlist and optional inbound policy compose restrictively; policy sees only authenticated sender and own copies bypass it',async()=>{
+test('inbound policy sees only the authenticated sender and own copies bypass it',async()=>{
  const identity=localNip17Identity(),peer=localNip17Identity();let observed:unknown[]=[];
  const options={identity,relays:urls,transport,database:':memory:'};
- const blocked=new Client({...options,allowlist:[],inboundPolicy:sender=>{observed.push(sender);return true;}});
- try{assert.equal(await blocked.receive(await wrap(rumor(peer.pubkey,identity.pubkey,'blocked'),peer,identity.pubkey,identity.pubkey,standardEnvelope),'live'),false);assert.deepEqual(observed,[]);assert.equal(blocked.history(peer.pubkey).messages.length,0);}finally{await blocked.close();}
- const client=new Client({...options,allowlist:[peer.pubkey],inboundPolicy:sender=>{observed.push(sender);return false;}});
+ const client=new Client({...options,inboundPolicy:function(this:unknown,sender){assert.equal(this,undefined);observed.push(sender);return false;}});
  try{
-  assert.equal(await client.receive(await wrap(rumor(peer.pubkey,identity.pubkey,'denied by second gate'),peer,identity.pubkey,identity.pubkey,standardEnvelope),'history'),false);assert.deepEqual(observed,[peer.pubkey]);assert.equal(typeof observed[0],'string');assert.equal(client.history(peer.pubkey).messages.length,0);
+  assert.equal(await client.receive(await wrap(rumor(peer.pubkey,identity.pubkey,'blocked'),peer,identity.pubkey,identity.pubkey,standardEnvelope),'history'),false);assert.deepEqual(observed,[peer.pubkey]);assert.equal(typeof observed[0],'string');assert.equal(client.history(peer.pubkey).messages.length,0);
   observed=[];const self=await wrap(rumor(identity.pubkey,peer.pubkey,'self copy'),identity,identity.pubkey,identity.pubkey,standardEnvelope);assert.equal(await client.receive(self,'history'),true);assert.deepEqual(observed,[]);assert.equal(client.history(peer.pubkey).messages[0].direction,'outgoing');
  }finally{await client.close();}
+});
+test('Bot rejects the removed allowlist option before it can open intake',async()=>{
+ const signer=nsecSigner(generateSecretKey());
+ try{
+  const options={signer,allowlist:[],database:':memory:'};
+  assert.throws(()=>new Bot(options),/Use inboundPolicy/);
+ }finally{await signer.close();}
 });
 test('inbound policy errors, Promise and truthy results never authorize or persist a message',async()=>{
  const identity=localNip17Identity(),peer=localNip17Identity(),event=await wrap(rumor(peer.pubkey,identity.pubkey,'private'),peer,identity.pubkey,identity.pubkey,standardEnvelope);

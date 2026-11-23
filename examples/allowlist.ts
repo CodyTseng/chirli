@@ -1,6 +1,6 @@
 import {z} from 'zod';
 import assert from 'node:assert/strict';
-import { Bot, allowlist, requestTiming, type RequestTiming, generateSecretKey, nsecSigner, type SenderAllowlist } from 'chirli';
+import { Bot, allowlist, requestTiming, type RequestTiming, generateSecretKey, nsecSigner } from 'chirli';
 import { MemoryRelay } from './_support.js';
 const serviceSigner = nsecSigner(generateSecretKey());
 
@@ -8,7 +8,7 @@ const serviceSigner = nsecSigner(generateSecretKey());
 const relay=new MemoryRelay(),relays=['wss://first.demo.invalid','wss://second.demo.invalid'];
 const acceptedSigner=nsecSigner(generateSecretKey()),deniedSigner=nsecSigner(generateSecretKey());
 const acceptedKey=await acceptedSigner.getPublicKey(),deniedKey=await deniedSigner.getPublicKey();
-const allowedKeys:SenderAllowlist=[acceptedKey];
+const allowedKeys = [acceptedKey];
 let commands=0,listeners=0,sessionWrites=0;const errors:unknown[]=[];
 const service=new Bot<{ visits: number }>({signer:serviceSigner,inboundPolicy:allowlist(allowedKeys),relays,
   storageKey:generateSecretKey(),database:':memory:',transport:relay.transport()});
@@ -40,5 +40,5 @@ try{
   console.log('Denied sender: no handlers, session, reply or incoming history.');
   console.log('Allowed identity: /ping -> pong; one command and one session.');
   assert.equal(timings.length,1);assert.equal(timings[0].outcome,'success');
-  console.log('Omit allowlist to accept all; [] rejects every external sender.');
+  console.log('Omit inboundPolicy to accept all. allowlist([]) rejects every external sender.');
 }finally{await bot.close();await accepted.close();await denied.close();await serviceSigner.close();await acceptedSigner.close();await deniedSigner.close();}
