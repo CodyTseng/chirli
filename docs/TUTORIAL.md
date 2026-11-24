@@ -21,14 +21,14 @@ On first launch the runner creates credentials beside `.chirli/bot.sqlite`. Late
 Add this import at the top of `examples/live/commands.ts`:
 
 ```ts
-import { npubEncode } from 'nostr-tools/nip19';
+import { npubEncode } from "nostr-tools/nip19";
 ```
 
 Register the command inside the existing `runLive` callback:
 
 ```ts
-bot.command({ command: 'hello', scopes: ['kind:14'] }, async ctx => {
-  await ctx.reply(`Hello, nostr:${npubEncode(ctx.sender)}!`);
+bot.command({ command: "hello", scopes: ["kind:14"] }, async (ctx) => {
+	await ctx.reply(`Hello, nostr:${npubEncode(ctx.sender)}!`);
 });
 ```
 
@@ -48,29 +48,36 @@ Send `/hello` to get a greeting with a `nostr:npub1…` mention. Clients that su
 The existing live commands example already imports z from zod; keep that import once. Add only these imports:
 
 ```ts
-import {InvalidArgsError} from 'chirli';
-import {randomInt} from 'node:crypto';
+import { InvalidArgsError } from "chirli";
+import { randomInt } from "node:crypto";
 ```
 
 Inside the existing runLive callback, register shared error handling before the command:
 
 ```ts
 bot.use(async (ctx, next) => {
-  try { await next(); }
-  catch (error) {
-    if (!(error instanceof InvalidArgsError)) throw error;
-    await ctx.reply('Usage: /roll <1..20>');
-  }
+	try {
+		await next();
+	} catch (error) {
+		if (!(error instanceof InvalidArgsError)) throw error;
+		await ctx.reply("Usage: /roll <1..20>");
+	}
 });
 
-bot.command({
-  command:'roll', scopes:['kind:14'],
-  args:z.object({sides:z.bigint().min(1n).max(20n).meta({label:'Sides'})}),
-}, async (ctx, args) => {
-  // Both entry points contain the same validated output.
-  const rolled=randomInt(1,Number(ctx.args.sides)+1);
-  await ctx.reply(`Rolled ${rolled} on a ${args.sides}-sided die.`);
-});
+bot.command(
+	{
+		command: "roll",
+		scopes: ["kind:14"],
+		args: z.object({
+			sides: z.bigint().min(1n).max(20n).meta({ label: "Sides" }),
+		}),
+	},
+	async (ctx, args) => {
+		// Both entry points contain the same validated output.
+		const rolled = randomInt(1, Number(ctx.args.sides) + 1);
+		await ctx.reply(`Rolled ${rolled} on a ${args.sides}-sided die.`);
+	},
+);
 ```
 
 Rebuild and restart, then send `/roll 6`: the reply is `Rolled N on a 6-sided die.`, with N in 1..6. `/roll`, `/roll invalid` and `/roll 21` each produce `Usage: /roll <1..20>` from the shared middleware, never the command handler. Arguments are decoded by NIP-CD before Zod runs; number tokens produce bigint. No response or retry is added when no error handler is configured. Plain fallback does not receive invalid arguments for a recognized, correctly targeted/scoped command.
@@ -84,12 +91,15 @@ For commands with args-dependent authorize, invalid input is silently terminated
 Use the conversation’s key-value storage through `ctx.session`. The handler supplies the default when a key is missing.
 
 ```ts
-const bot = new Bot<{ visits: number }>({ signer, database: './chirli.sqlite' });
+const bot = new Bot<{ visits: number }>({
+	signer,
+	database: "./chirli.sqlite",
+});
 
-bot.command({ command: 'visit', scopes: ['kind:14'] }, async ctx => {
-  const visits = (await ctx.session.getItem('visits') ?? 0) + 1;
-  ctx.session.setItem('visits', visits);
-  await ctx.reply(`Visit ${visits}`);
+bot.command({ command: "visit", scopes: ["kind:14"] }, async (ctx) => {
+	const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
+	ctx.session.setItem("visits", visits);
+	await ctx.reply(`Visit ${visits}`);
 });
 
 await bot.start();
@@ -104,8 +114,8 @@ Call `ctx.session.removeItem(key)` to delete one value or `ctx.session.clear()` 
 Register a handler for messages with no matching command:
 
 ```ts
-bot.handle(async ctx => {
-  await ctx.reply('Message received');
+bot.handle(async (ctx) => {
+	await ctx.reply("Message received");
 });
 ```
 
@@ -113,7 +123,7 @@ Use `bot.use()` for shared middleware before routing. Use `observe()` for indepe
 
 ```ts
 bot.catch((error, ctx) => {
-  // Observe the failure using your application's sanitized diagnostics.
+	// Observe the failure using your application's sanitized diagnostics.
 });
 ```
 
@@ -146,16 +156,16 @@ Install the resulting tarball in your ESM application, for example `npm install 
 Construct the Bot, register handlers and await startup:
 
 ```ts
-import { Bot, nsecSigner } from 'chirli';
+import { Bot, nsecSigner } from "chirli";
 
 const signer = nsecSigner(nsecFromYourSecretManager);
 const bot = new Bot({
-  signer,
-  database: './chirli.sqlite',
+	signer,
+	database: "./chirli.sqlite",
 });
 
-bot.command({ command: 'ping', scopes: ['kind:14'] }, async ctx => {
-  await ctx.reply('pong', { replyTo: ctx.input.id });
+bot.command({ command: "ping", scopes: ["kind:14"] }, async (ctx) => {
+	await ctx.reply("pong", { replyTo: ctx.input.id });
 });
 
 await bot.start();

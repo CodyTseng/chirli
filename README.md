@@ -42,29 +42,28 @@ For a guided path from the runnable demo to your own application, see the [first
 Select a signer at the application boundary. This example reads an application-provided nsec from `CHIRLI_NSEC`:
 
 ```ts
-import { Bot, nsecSigner } from 'chirli';
+import { Bot, nsecSigner } from "chirli";
 
 const signer = nsecSigner(process.env.CHIRLI_NSEC!);
 const bot = new Bot({
-  signer,
-  database: './chirli.sqlite',
+	signer,
+	database: "./chirli.sqlite",
 });
 
-
-bot.command({ command: 'ping', scopes: ['kind:14'] }, async ctx => {
-  await ctx.reply('pong');
+bot.command({ command: "ping", scopes: ["kind:14"] }, async (ctx) => {
+	await ctx.reply("pong");
 });
 
 try {
-  await bot.start();
+	await bot.start();
 
-  console.log(`Bot public key: ${bot.pubkey}`);
-  await new Promise<void>(resolve => {
-    process.once('SIGINT', () => resolve());
-  });
+	console.log(`Bot public key: ${bot.pubkey}`);
+	await new Promise<void>((resolve) => {
+		process.once("SIGINT", () => resolve());
+	});
 } finally {
-  await bot.close();
-  await signer.close();
+	await bot.close();
+	await signer.close();
 }
 ```
 
@@ -75,9 +74,11 @@ Register the complete command set before starting. `bot.start()` resolves the si
 Replace the signer without changing handlers:
 
 ```ts
-import { bunkerSigner } from 'chirli';
+import { bunkerSigner } from "chirli";
 
-const signer = bunkerSigner(bunkerUri, { clientSecret: bunkerClientKeyFromYourSecretManager });
+const signer = bunkerSigner(bunkerUri, {
+	clientSecret: bunkerClientKeyFromYourSecretManager,
+});
 ```
 
 Pass this signer to `new Bot({ signer })`. After startup, `bot.pubkey` gives you the account key. Approve requests in the signer or configure its permissions ahead of time. See [remote signers](docs/SIGNERS.md#remote-bunker).
@@ -87,12 +88,12 @@ Pass this signer to `new Bot({ signer })`. After startup, `bot.pubkey` gives you
 Use `handle()` to reply to messages that have no matching command:
 
 ```ts
-bot.handle(async ctx => {
-  await ctx.reply('Thanks for your message');
+bot.handle(async (ctx) => {
+	await ctx.reply("Thanks for your message");
 });
 
 bot.onError((error, message) => {
-  // Forward sanitized diagnostics to your application's monitoring.
+	// Forward sanitized diagnostics to your application's monitoring.
 });
 ```
 
@@ -103,7 +104,7 @@ Handlers run serially within a conversation and concurrently across conversation
 To reference the current DM in a reply, pass `ctx.input.id` as `replyTo`:
 
 ```ts
-await ctx.reply('Got it', { replyTo: ctx.input.id });
+await ctx.reply("Got it", { replyTo: ctx.input.id });
 ```
 
 Use `bot.getMessage(id)` for local private-message lookup, or `ctx.thread()` to load preceding context. To react to the current input, call `ctx.react('👍')`.
@@ -111,7 +112,7 @@ Use `bot.getMessage(id)` for local private-message lookup, or `ctx.thread()` to 
 ### Inspect history and retry delivery
 
 ```ts
-const result = await bot.send(peerPubkey, 'Hello');
+const result = await bot.send(peerPubkey, "Hello");
 // result.status: 'relay-accepted' | 'pending'
 
 const page = bot.dmHistory(peerPubkey, { limit: 20 });
@@ -128,18 +129,18 @@ History is local and paginated. Pass `page.nextCursor` to retrieve older rows; a
 
 ```ts
 const bot = new Bot<{ visits: number }>({
-  signer,
-  database: './chirli.sqlite',
+	signer,
+	database: "./chirli.sqlite",
 });
 
-bot.command({ command: 'visit', scopes: ['kind:14'] }, async ctx => {
-  const visits = (await ctx.session.getItem('visits') ?? 0) + 1;
-  ctx.session.setItem('visits', visits);
-  await ctx.reply(`Visit ${visits}`);
+bot.command({ command: "visit", scopes: ["kind:14"] }, async (ctx) => {
+	const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
+	ctx.session.setItem("visits", visits);
+	await ctx.reply(`Visit ${visits}`);
 });
 
-bot.handle(async ctx => {
-  await ctx.reply('Try /visit');
+bot.handle(async (ctx) => {
+	await ctx.reply("Try /visit");
 });
 ```
 
@@ -148,20 +149,20 @@ Register shared middleware with `bot.use((ctx, next) => ...)`. Middleware runs i
 Declare a typed argument schema in `command()` for typed arguments. Here `value` is inferred as `bigint`, and the published `d` is `count`.
 
 ```ts
-import {z} from 'zod';
+import { z } from "zod";
 
 bot.command(
-  {
-    command: 'count', scopes: ['kind:14'],
-    title: 'Count',
-    description: 'Read an unsigned count.',
-    args: z.object({ value: z.bigint().meta({label:'Value'}) }),
-  },
-  async (ctx, { value }) => {
-    await ctx.reply(String(value));
-  },
+	{
+		command: "count",
+		scopes: ["kind:14"],
+		title: "Count",
+		description: "Read an unsigned count.",
+		args: z.object({ value: z.bigint().meta({ label: "Value" }) }),
+	},
+	async (ctx, { value }) => {
+		await ctx.reply(String(value));
+	},
 );
-
 ```
 
 To remove or rename a command, update the declared command set and restart with the same account and relay configuration. Startup automatically withdraws definitions absent from the new registry. There is no runtime removal method.
@@ -238,12 +239,20 @@ Bot command identifiers come from their command names; custom `id` parameters ar
 ## Optional access and timing middleware
 
 ```ts
-import { Bot, allowlist, requestTiming } from 'chirli';
+import { Bot, allowlist, requestTiming } from "chirli";
 
 const bot = new Bot({ signer });
 bot.use(allowlist(trustedIdentityPubkeys));
-bot.use(requestTiming({ onTiming: metric => { console.info(metric); } }));
-bot.command({ command: 'ping', scopes: ['kind:14'] }, async ctx => { await ctx.reply('pong'); });
+bot.use(
+	requestTiming({
+		onTiming: (metric) => {
+			console.info(metric);
+		},
+	}),
+);
+bot.command({ command: "ping", scopes: ["kind:14"] }, async (ctx) => {
+	await ctx.reply("pong");
+});
 await bot.start(); // Command declarations remain automatic.
 ```
 
@@ -256,10 +265,13 @@ await bot.start(); // Command declarations remain automatic.
 Register one explicitly scoped command for DMs, notes and comments. Public reads require `publicInbox: {relays: [...]}`; they never use implicit default relays. `ctx.input` contains the authenticated input. `ctx.reply()` and `ctx.react()` preserve its private or public visibility, and `await ctx.thread({limit:30})` lazily loads prior context. Public context/session storage never reads private conversations.
 
 ```ts
-const bot = new Bot({signer, publicInbox:{relays:publicInboxRelays}});
-bot.command({command:'ping',scopes:['kind:14','kind:1','kind:1111']}, async ctx => {
-  await ctx.reply('pong');
-});
+const bot = new Bot({ signer, publicInbox: { relays: publicInboxRelays } });
+bot.command(
+	{ command: "ping", scopes: ["kind:14", "kind:1", "kind:1111"] },
+	async (ctx) => {
+		await ctx.reply("pong");
+	},
+);
 await bot.start();
 ```
 

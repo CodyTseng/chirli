@@ -6,16 +6,19 @@ Chirli accepts authenticated kind 14 DMs and verified public kind 1/1111 command
 
 ```ts
 const bot = new Bot({
-  signer,
-  publicInbox: {
-    relays: ['wss://your-inbox.example', 'wss://your-second-inbox.example'],
-    thread: {timeoutMs:3000,maxEvents:500,maxLookups:16,maxDepth:64},
-  },
-  writeRelays: ['wss://your-write.example'],
+	signer,
+	publicInbox: {
+		relays: ["wss://your-inbox.example", "wss://your-second-inbox.example"],
+		thread: { timeoutMs: 3000, maxEvents: 500, maxLookups: 16, maxDepth: 64 },
+	},
+	writeRelays: ["wss://your-write.example"],
 });
-bot.command({command:'ping',scopes:['kind:14','kind:1','kind:1111']}, async ctx => {
-  await ctx.reply('pong');
-});
+bot.command(
+	{ command: "ping", scopes: ["kind:14", "kind:1", "kind:1111"] },
+	async (ctx) => {
+		await ctx.reply("pong");
+	},
+);
 await bot.start();
 ```
 
@@ -46,11 +49,16 @@ The handler context has the same fields and methods for both kinds of input. Use
 ## Lazy ancestor context
 
 ```ts
-bot.command({command:'summarize',scopes:['kind:14','kind:1','kind:1111']}, async ctx => {
-  const result = await ctx.thread({limit:30});
-  const reply = await applicationProcessor(result.entries, {complete:result.complete});
-  await ctx.reply(reply);
-});
+bot.command(
+	{ command: "summarize", scopes: ["kind:14", "kind:1", "kind:1111"] },
+	async (ctx) => {
+		const result = await ctx.thread({ limit: 30 });
+		const reply = await applicationProcessor(result.entries, {
+			complete: result.complete,
+		});
+		await ctx.reply(reply);
+	},
+);
 ```
 
 No history is sent anywhere automatically. `applicationProcessor` belongs to your application. The offline demo uses a deterministic mock.

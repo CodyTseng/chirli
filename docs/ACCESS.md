@@ -3,9 +3,9 @@
 Register `allowlist` as ordinary middleware to control which authenticated senders reach subsequent middleware, commands and the fallback handler.
 
 ```ts
-import { Bot, allowlist } from 'chirli';
+import { Bot, allowlist } from "chirli";
 
-const bot = new Bot({ signer, database: './chirli.sqlite' });
+const bot = new Bot({ signer, database: "./chirli.sqlite" });
 bot.use(allowlist([trustedIdentityPubkey]));
 ```
 

@@ -5,14 +5,16 @@ Chirli is an ESM-only Node.js 24+ package. Import from `chirli`; internal source
 ## Construction
 
 ```ts
-import { Bot, nsecSigner } from 'chirli';
+import { Bot, nsecSigner } from "chirli";
 
 const signer = nsecSigner(nsecFromYourSecretManager);
 const bot = new Bot({
-  signer,
-  database: './chirli.sqlite',
+	signer,
+	database: "./chirli.sqlite",
 });
-bot.command({ command: 'ping', scopes: ['kind:14'] }, async ctx => { await ctx.reply('pong'); });
+bot.command({ command: "ping", scopes: ["kind:14"] }, async (ctx) => {
+	await ctx.reply("pong");
+});
 await bot.start();
 console.log(bot.pubkey);
 ```
@@ -65,7 +67,7 @@ Omitted relay roles use exported `DEFAULT_DM_RELAYS`, `DEFAULT_READ_RELAYS`, `DE
 `start()` does not render or return the identity. After it completes, `bot.pubkey` is the bot account’s 64-character lowercase hex public key. Applications can display it as text or derive a link or QR payload:
 
 ```ts
-import { npubEncode } from 'nostr-tools/nip19';
+import { npubEncode } from "nostr-tools/nip19";
 
 await bot.start();
 const uri = `nostr:${npubEncode(bot.pubkey)}`;
@@ -88,12 +90,12 @@ Await application-owned sends and stop/await application timers before closing B
 ## Processing and observations
 
 ```ts
-const detach = bot.handle(async ctx => {
-  await ctx.reply('Thanks');
+const detach = bot.handle(async (ctx) => {
+	await ctx.reply("Thanks");
 });
 
-const unobserve = bot.observe(message => {
-  // Receipt observation only; no durable success/failure responsibility.
+const unobserve = bot.observe((message) => {
+	// Receipt observation only; no durable success/failure responsibility.
 });
 ```
 
@@ -116,7 +118,9 @@ A `Message` contains rumor `id`, identity `sender`, peer `conversation`, `text`,
 ### Upload file bytes
 
 ```ts
-const { url, sha256, size, mimeType } = await bot.uploadFile(bytes, { mimeType: 'image/png' });
+const { url, sha256, size, mimeType } = await bot.uploadFile(bytes, {
+	mimeType: "image/png",
+});
 ```
 
 `uploadFile(bytes, options?)` uploads the supplied bytes as-is, without encryption, to the first configured Blossom server that accepts them. If the bytes are plaintext, people who can access the blob URL can read them. Callers can encrypt bytes themselves before uploading. Pass `mimeType` for the uploaded bytes, or omit it to use `application/octet-stream`. The result contains the verified URL, SHA-256, byte count and MIME sent in the request. The URL must end in the blob hash, with an optional extension, and use the accepting server’s origin or an explicit `blossomDownloadOrigins` entry. This upload does not send any Nostr message or publish a note; callers can use the result to build a public note with an `imeta` tag.
@@ -126,14 +130,14 @@ const { url, sha256, size, mimeType } = await bot.uploadFile(bytes, { mimeType: 
 Pass the file bytes, not a URL or a path. Configure the servers when constructing the bot:
 
 ```ts
-import { readFile } from 'node:fs/promises';
-import { Bot } from 'chirli';
+import { readFile } from "node:fs/promises";
+import { Bot } from "chirli";
 
-const bot = new Bot({ signer, blossomServers: ['https://files.example.com'] });
+const bot = new Bot({ signer, blossomServers: ["https://files.example.com"] });
 await bot.start();
-const result = await bot.sendFile(peerPubkey, await readFile('report.pdf'), {
-  name: 'report.pdf',
-  mimeType: 'application/pdf',
+const result = await bot.sendFile(peerPubkey, await readFile("report.pdf"), {
+	name: "report.pdf",
+	mimeType: "application/pdf",
 });
 ```
 
@@ -148,8 +152,8 @@ See [NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md) and [Blos
 ### Reply with a private or public file
 
 ```ts
-await ctx.replyFile(bytes, { mimeType: 'image/png', name: 'report.png' });
-await bot.replyFile(event, bytes, { mimeType: 'image/png' }); // Outside the handler.
+await ctx.replyFile(bytes, { mimeType: "image/png", name: "report.png" });
+await bot.replyFile(event, bytes, { mimeType: "image/png" }); // Outside the handler.
 ```
 
 `bot.replyFile` takes the same original `ctx.input.event` as `bot.reply`, not an event ID. Both forms return the normal send result. The anchor decides the visibility:
@@ -164,8 +168,8 @@ For a new top-level public note rather than a reply, `uploadFile()` supplies the
 To reference an earlier DM explicitly, pass its ID:
 
 ```ts
-await ctx.reply('Got it', { replyTo: ctx.input.id }); // Within a DM handler.
-await bot.send(peerPubkey, 'Follow-up', { replyTo: earlierMessage.id });
+await ctx.reply("Got it", { replyTo: ctx.input.id }); // Within a DM handler.
+await bot.send(peerPubkey, "Follow-up", { replyTo: earlierMessage.id });
 ```
 
 `replyTo` is the lowercase hex kind-14 message ID. The SDK writes it as an `e` tag inside the encrypted message. Stored private `Message` objects include the optional parent ID as `message.replyTo`. Omit the option for a plain DM. Public replies instead reference the triggering note/comment automatically and do not accept DM options.
@@ -190,7 +194,7 @@ Discovery, signing and pre-commit persistence errors reject. Once committed, net
 ```ts
 const page = bot.dmHistory(peerPubkey, { limit: 20 });
 if (page.nextCursor) {
-  const older = bot.dmHistory(peerPubkey, { cursor: page.nextCursor });
+	const older = bot.dmHistory(peerPubkey, { cursor: page.nextCursor });
 }
 ```
 
@@ -275,15 +279,18 @@ Timing covers the downstream middleware/command/fallback chain, including reply 
 
 ```ts
 // jobs is an application-owned queue; protect plaintext DM events in its storage.
-bot.command({command:'work',scopes:['kind:14','kind:1','kind:1111']}, async ctx => {
-  await jobs.add(structuredClone(ctx.input.event));
-});
+bot.command(
+	{ command: "work", scopes: ["kind:14", "kind:1", "kind:1111"] },
+	async (ctx) => {
+		await jobs.add(structuredClone(ctx.input.event));
+	},
+);
 
 // After the handler finishes, with this Bot started and its account store available:
 async function processJob(event: Event | Rumor) {
-  const prior = await bot.thread(event, {limit:30});
-  const text = await applicationProcessor(prior.entries);
-  return bot.reply(event, text);
+	const prior = await bot.thread(event, { limit: 30 });
+	const text = await applicationProcessor(prior.entries);
+	return bot.reply(event, text);
 }
 ```
 
@@ -300,28 +307,33 @@ Calls snapshot the event before asynchronous work, and handler methods retain se
 Declare Zod 4 as an application dependency, import `z` from `zod`, and pass one object directly as `args`. No argument-builder API, second schema or per-command error callback is needed.
 
 ```ts
-import {z} from 'zod';
-import {InvalidArgsError} from 'chirli';
+import { z } from "zod";
+import { InvalidArgsError } from "chirli";
 
 bot.use(async (ctx, next) => {
-  try { await next(); }
-  catch (error) {
-    if (!(error instanceof InvalidArgsError)) throw error;
-    await ctx.reply(`Usage error for /${error.command}`);
-  }
+	try {
+		await next();
+	} catch (error) {
+		if (!(error instanceof InvalidArgsError)) throw error;
+		await ctx.reply(`Usage error for /${error.command}`);
+	}
 });
 
-bot.command({
-  command:'pick', scopes:['kind:14','kind:1','kind:1111'],
-  args:z.object({
-    user:z.string().meta({label:'User',nipcdType:'pubkey'}),
-    count:z.bigint().min(1n).max(10n).meta({label:'Count'}),
-    mode:z.enum(['short','full']).optional().meta({label:'Mode'}),
-  }),
-}, async (ctx, args) => {
-  // ctx.args and args are the same validated result; count is bigint.
-  await ctx.reply(`${ctx.args.mode ?? 'short'}: ${args.count}`);
-});
+bot.command(
+	{
+		command: "pick",
+		scopes: ["kind:14", "kind:1", "kind:1111"],
+		args: z.object({
+			user: z.string().meta({ label: "User", nipcdType: "pubkey" }),
+			count: z.bigint().min(1n).max(10n).meta({ label: "Count" }),
+			mode: z.enum(["short", "full"]).optional().meta({ label: "Mode" }),
+		}),
+	},
+	async (ctx, args) => {
+		// ctx.args and args are the same validated result; count is bigint.
+		await ctx.reply(`${ctx.args.mode ?? "short"}: ${args.count}`);
+	},
+);
 ```
 
 Field names and insertion order generate NIP-CD positional names/order. `optional()` sets required=false. Labels come from field `.meta({label})`, defaulting to the name. String → word, bigint → number, boolean → bool and string enum → enum/choices are inferred. Annotate strings with `nipcdType:'text'|'pubkey'|'event'|'relay'` when needed. For address use `.meta({nipcdType:'address'})` on `z.object({kind:z.number().int(),pubkey:z.string(),identifier:z.string(),relays:z.array(z.string())})`; decoder output matches the existing CommandAddress structure. Constraints/refinements run on decoded values, including asynchronous refinements.

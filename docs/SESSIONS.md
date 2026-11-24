@@ -5,22 +5,22 @@ Use `ctx.session` to keep business state between messages in the same DM convers
 ## Use the default SQLite storage
 
 ```ts
-import { Bot } from 'chirli';
+import { Bot } from "chirli";
 
 const bot = new Bot<{ visits: number }>({
-  signer,
-  database: './bot.sqlite',
+	signer,
+	database: "./bot.sqlite",
 });
 
-bot.command({ command: 'visit', scopes: ['kind:14'] }, async ctx => {
-  const visits = (await ctx.session.getItem('visits') ?? 0) + 1;
-  ctx.session.setItem('visits', visits);
-  await ctx.reply(`Visit ${visits}`);
+bot.command({ command: "visit", scopes: ["kind:14"] }, async (ctx) => {
+	const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
+	ctx.session.setItem("visits", visits);
+	await ctx.reply(`Visit ${visits}`);
 });
 
-bot.command({ command: 'reset', scopes: ['kind:14'] }, async ctx => {
-  ctx.session.clear();
-  await ctx.reply('Session reset.');
+bot.command({ command: "reset", scopes: ["kind:14"] }, async (ctx) => {
+	ctx.session.clear();
+	await ctx.reply("Session reset.");
 });
 
 await bot.start();
@@ -44,12 +44,12 @@ Pass `sessionStore` to `new Bot()` to choose where business sessions are saved. 
 The following example uses an application-owned SQLite file for a Bot whose session stores a visit count. The `signer` is the one configured for your Bot.
 
 ```ts
-import { DatabaseSync } from 'node:sqlite';
-import { Bot, type SessionStore } from 'chirli';
+import { DatabaseSync } from "node:sqlite";
+import { Bot, type SessionStore } from "chirli";
 
 type State = { visits: number };
 
-const db = new DatabaseSync('./my-sessions.sqlite');
+const db = new DatabaseSync("./my-sessions.sqlite");
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
     conversation TEXT PRIMARY KEY,
@@ -57,38 +57,42 @@ db.exec(`
   ) STRICT
 `);
 
-const read = db.prepare('SELECT snapshot FROM sessions WHERE conversation = ?');
+const read = db.prepare("SELECT snapshot FROM sessions WHERE conversation = ?");
 const write = db.prepare(`
   INSERT INTO sessions (conversation, snapshot) VALUES (?, ?)
   ON CONFLICT(conversation) DO UPDATE SET snapshot = excluded.snapshot
 `);
 
 const sessionStore: SessionStore<State> = {
-  get(conversation) {
-    const row = read.get(conversation);
-    if (row === undefined) return undefined;
-    if (typeof row.snapshot !== 'string') throw new Error('Invalid session snapshot');
+	get(conversation) {
+		const row = read.get(conversation);
+		if (row === undefined) return undefined;
+		if (typeof row.snapshot !== "string")
+			throw new Error("Invalid session snapshot");
 
-    const value: unknown = JSON.parse(row.snapshot);
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new Error('Invalid session snapshot');
-    }
-    if (!('visits' in value)) return {};
-    if (typeof value.visits !== 'number' || !Number.isSafeInteger(value.visits)) {
-      throw new Error('Invalid session count');
-    }
-    return { visits: value.visits };
-  },
-  set(conversation, snapshot) {
-    write.run(conversation, JSON.stringify(snapshot));
-  },
+		const value: unknown = JSON.parse(row.snapshot);
+		if (!value || typeof value !== "object" || Array.isArray(value)) {
+			throw new Error("Invalid session snapshot");
+		}
+		if (!("visits" in value)) return {};
+		if (
+			typeof value.visits !== "number" ||
+			!Number.isSafeInteger(value.visits)
+		) {
+			throw new Error("Invalid session count");
+		}
+		return { visits: value.visits };
+	},
+	set(conversation, snapshot) {
+		write.run(conversation, JSON.stringify(snapshot));
+	},
 };
 
 const bot = new Bot({ signer, sessionStore });
-bot.command({ command: 'visit', scopes: ['kind:14'] }, async ctx => {
-  const visits = (await ctx.session.getItem('visits') ?? 0) + 1;
-  ctx.session.setItem('visits', visits);
-  await ctx.reply(`Visit ${visits}`);
+bot.command({ command: "visit", scopes: ["kind:14"] }, async (ctx) => {
+	const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
+	ctx.session.setItem("visits", visits);
+	await ctx.reply(`Visit ${visits}`);
 });
 await bot.start();
 ```

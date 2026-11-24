@@ -3,13 +3,13 @@
 Create a Bot with a signer. Local nsec and remote bunker credentials use the same API; application handlers never inspect the signing backend.
 
 ```ts
-import { Bot, nsecSigner, bunkerSigner } from 'chirli';
+import { Bot, nsecSigner, bunkerSigner } from "chirli";
 
 const signer = nsecSigner(nsecFromYourSecretManager);
 // Alternatively: const signer = bunkerSigner(bunkerUri, { clientSecret: bunkerClientKeyFromYourSecretManager });
 const bot = new Bot({
-  signer,
-  database: './inbox.sqlite',
+	signer,
+	database: "./inbox.sqlite",
 });
 await bot.start();
 console.log(bot.pubkey);
@@ -37,7 +37,9 @@ The application always owns the signer. Bot never calls its optional `close()`, 
 ## Remote bunker
 
 ```ts
-const signer = bunkerSigner(bunkerUri, { clientSecret: bunkerClientKeyFromYourSecretManager });
+const signer = bunkerSigner(bunkerUri, {
+	clientSecret: bunkerClientKeyFromYourSecretManager,
+});
 ```
 
 A bunker URI identifies the service key. Chirli resolves the account key through NIP-46 and checks it on reconnect. A timed-out operation discards the connection. Later requests can reconnect using the same client key.

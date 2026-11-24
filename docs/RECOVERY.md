@@ -6,9 +6,9 @@ The Bot manages one inbox subscription per DM relay. Each reconnects independent
 
 ```ts
 const bot = new Bot({
-  signer,
-  reconnect: { maxDelayMs: 60_000, jitter: 0.2, stableResetMs: 30_000 },
-  recovery: { pageSize: 500, maxPages: 20, overlapSeconds: 176_400 },
+	signer,
+	reconnect: { maxDelayMs: 60_000, jitter: 0.2, stableResetMs: 30_000 },
+	recovery: { pageSize: 500, maxPages: 20, overlapSeconds: 176_400 },
 });
 await bot.start();
 ```

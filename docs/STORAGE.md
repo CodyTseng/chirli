@@ -9,21 +9,21 @@ Business conversation state uses `ctx.session`. A Bot can supply a `sessionStore
 Bot uses `sqliteMessageStorage` by default, with message records in the same database file as the internal tables. `:memory:` keeps both stores in memory. To choose a separate message database:
 
 ```ts
-import { Bot, sqliteMessageStorage } from 'chirli';
+import { Bot, sqliteMessageStorage } from "chirli";
 
-const messages = sqliteMessageStorage('./messages.sqlite');
+const messages = sqliteMessageStorage("./messages.sqlite");
 const bot = new Bot({
-  signer,
-  database: './internal.sqlite',
-  storageKey,
-  messageStorage: messages,
+	signer,
+	database: "./internal.sqlite",
+	storageKey,
+	messageStorage: messages,
 });
 
 try {
-  await bot.start();
+	await bot.start();
 } finally {
-  await bot.close();
-  messages.close();
+	await bot.close();
+	messages.close();
 }
 ```
 
@@ -33,9 +33,9 @@ Bot closes its default message backend. Close an injected backend after closing 
 
 ```ts
 interface MessageStorage {
-  insert(account: string, message: MessageStorageEntry): boolean;
-  query(account: string, options?: MessageStorageQuery): MessageStorageEntry[];
-  updateState(account: string, id: string, state: MessageState): void;
+	insert(account: string, message: MessageStorageEntry): boolean;
+	query(account: string, options?: MessageStorageQuery): MessageStorageEntry[];
+	updateState(account: string, id: string, state: MessageState): void;
 }
 ```
 
