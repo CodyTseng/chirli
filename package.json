@@ -36,7 +36,7 @@
     "example:protocol-modes": "node dist/examples/protocol-modes.js",
     "pack:check": "node scripts/check-package.mjs",
     "prepack": "npm run build",
-    "check": "npm run build && npm run typecheck && npm test && npm run examples:smoke && npm run pack:check",
+    "check": "npm run check:style && npm run build && npm run typecheck && npm test && npm run examples:smoke && npm run pack:check",
     "example:signers": "node dist/examples/signers.js",
     "example:nipcd": "node dist/examples/nipcd.js",
     "example:interop": "node dist/examples/interop.js",
@@ -51,7 +51,10 @@
     "bot:notes": "node --env-file-if-exists=.env.chirli dist/examples/live/notes.js",
     "example:key-sync": "node dist/examples/key-sync.js",
     "example:public": "node dist/examples/public.js",
-    "example:async-reply": "node dist/examples/async-reply.js"
+    "example:async-reply": "node dist/examples/async-reply.js",
+    "format": "biome format --write",
+    "lint": "biome lint",
+    "check:style": "biome ci --diagnostic-level=error"
   },
   "dependencies": {
     "nostr-tools": "^2.26.0",
@@ -59,6 +62,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.8",
     "@types/node": "^24.0.0",
     "@types/ws": "^8.18.0",
     "tsx": "^4.20.0",

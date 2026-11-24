@@ -13,6 +13,8 @@ npm run check
 
 `check` builds from a clean `dist/`, checks all TypeScript, runs tests, executes fourteen offline examples, and checks an actual npm tarball in an isolated consumer. Local WebSocket tests and the packaged loopback demo need permission to bind loopback sockets. No public relays, account keys, or paid APIs are required.
 
+Use `npm run format` to apply Biome's default formatting and `npm run lint` to see its recommended lint warnings and errors. `npm run check:style` is the read-only CI style check; formatting differences and lint errors fail it. Biome covers JS/TS under `src`, `test`, `examples` and `scripts`, excluding fixtures. TypeScript still runs separately.
+
 `npm test` uses temporary identities/databases. Two optional tests require an externally built PsstPsst Go relay:
 
 ```sh

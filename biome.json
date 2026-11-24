@@ -1,0 +1,24 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
+	"files": {
+		"includes": [
+			"src/**/*.js",
+			"src/**/*.mjs",
+			"src/**/*.ts",
+			"test/**/*.js",
+			"test/**/*.mjs",
+			"test/**/*.ts",
+			"examples/**/*.js",
+			"examples/**/*.mjs",
+			"examples/**/*.ts",
+			"scripts/**/*.js",
+			"scripts/**/*.mjs",
+			"scripts/**/*.ts",
+			"!!test/fixtures"
+		]
+	},
+	"linter": {
+		"rules": { "preset": "recommended" }
+	},
+	"assist": { "enabled": false }
+}
