@@ -1,4 +1,10 @@
 export type {
+  FileAttachment,
+  FileDownloadError,
+  FileDownloadErrorCode,
+  FileDownloadResult,
+} from "./attachments.js";
+export type {
   ReplyFileOptions,
   SendFileOptions,
   UploadFileOptions,

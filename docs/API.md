@@ -38,7 +38,8 @@ Construct the Bot and register handlers before calling `start()`. `start()` reso
 | `writeRelays` | Public metadata/command role; nonempty |
 | `discoveryRelays` | Extra recipients for public account announcements; `[]` disables this extra fan-out |
 | `blossomServers` | Ordered upload servers; defaults to `https://blossom.jumble.social/`; `[]` disables file uploads |
-| `blossomDownloadOrigins` | Optional trusted HTTPS origins for downloads served by a separate CDN |
+| `blossomDownloadOrigins` | Additional trusted HTTPS origins for uploaded blob URLs and incoming attachment downloads |
+| `attachmentDirectory` | Root directory for verified downloads. Defaults to `<database>.attachments`, or `psstpsst.sqlite.attachments` for an in-memory database |
 | `mode` | `nip17` default, or explicit `nip4e` split messaging keys |
 | `keyRotation` | Omitted/false, or split-mode rotation settings; see [keys](KEYS.md) |
 | `nip4eCompatibility` | False suppresses identity-key 10044 publication; dual intake stays enabled |
@@ -145,9 +146,35 @@ const result = await bot.sendFile(peerPubkey, await readFile("report.pdf"), {
 
 By default Chirli uses the exported `DEFAULT_BLOSSOM_SERVERS` list. An explicit list replaces it entirely. `start()` and `announce()` publish the ordered BUD-03 kind 10063 list to `writeRelays` and `discoveryRelays`, not to DM-only relays. With `blossomServers: []`, Chirli publishes no Blossom list and does not clear an existing public list. Use HTTPS URLs with no credentials, query or fragment. Explicit HTTP loopback URLs are allowed for development. Chirli tries only the configured servers, in order. After the first upload succeeds, it tries BUD-04 mirroring concurrently on the remaining configured servers. Mirrors are best-effort: failures do not change the successful upload result. Mirror requests reuse the successful upload authorization and have a 10-second HTTP timeout. The authorization is restricted to configured server hostnames; mirrors never ask the signer to sign again. No unconfigured server is used.
 
-The server receives ciphertext, ciphertext size/hash and a signed upload authorization identifying the bot. The recipient gets the URL and decryption metadata inside a NIP-17 kind-15 gift wrap. Chirli stores outgoing file metadata in local message history like other messages; use `storageKey` (and an appropriate custom store, if configured) to protect it at rest. This API sends private files only. Incoming file handling and downloading are not provided.
+The server receives ciphertext, ciphertext size/hash and a signed upload authorization identifying the bot. The recipient gets the URL and decryption metadata inside a NIP-17 kind-15 gift wrap. Chirli stores outgoing file metadata in local message history like other messages; use `storageKey` (and an appropriate custom store, if configured) to protect it at rest. This API sends private files only.
 
 See [NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md) and [Blossom server lists](https://github.com/hzrd149/blossom/blob/master/buds/03.md).
+
+### Receive and download a private file
+
+File DMs pass through the same middleware and `handle()` callback as text DMs. A kind-15 input has empty `text` and carries a `file` attachment. It bypasses text command matching. Incoming files use the same replay protection and history admission as other private messages.
+
+```ts
+bot.handle(async (ctx) => {
+  const attachment = ctx.input.file;
+  if (!attachment) return;
+
+  const { file, error } = await attachment.download();
+  if (error !== null) {
+    await ctx.reply(`Unable to read the attachment (${error.code}).`);
+    return;
+  }
+  await ctx.reply(`Received ${file.name} (${file.size} bytes).`);
+});
+```
+
+`FileAttachment` exposes the sender's URL, MIME type, encrypted SHA-256 (`x`), optional plaintext SHA-256 (`ox`), optional encrypted and plaintext byte counts, and an optional filename. These values describe the attachment as sent. Admitted files are also available on `Message.file` in receipt observers and retained history and on `Input.file` in a private thread. Download after the message is admitted, for example in `handle()` or from retained history.
+
+`download()` resolves to `{ file, error: null }` or `{ file: null, error }`. The returned standard `File` supports `stream()` and `arrayBuffer()`. Its name defaults to the verified plaintext SHA-256 when the message has no usable filename. Errors have a `code`, a message, and an optional HTTP `status`. Codes cover download failure, integrity checks, decryption, storage and attempts to download outside admitted history.
+
+Use `attachment.mimeType` when setting a `Content-Type` header or parsing the file with case-sensitive MIME parameters such as a multipart boundary. The standard `File` constructor lowercases `file.type`, including parameter values. [File API constructor](https://w3c.github.io/FileAPI/#file-constructor)
+
+Downloads use the configured Blossom server origins and additional `blossomDownloadOrigins`. Redirects and fallback URLs must follow the same origin rules. If a source times out or returns ciphertext that fails verification, Chirli tries the next fallback URL. The network budget is 60 seconds, with each source receiving a share of the remaining time. The SDK buffers the attachment in memory without a fixed download size limit. Applications decide whether to call `download()`. The optional size fields are sender declarations and are verified after fetching. Chirli checks the encrypted hash, authenticates and decrypts with AES-GCM, then checks the plaintext hash and size when present. Verified plaintext is saved under the account's public key in `attachmentDirectory`, using the computed hash as its filename. A verified cache entry can be reused for the same sender and encryption metadata. Files on disk are plaintext even when `storageKey` protects the message database.
 
 ### Reply with a private or public file
 
@@ -158,7 +185,7 @@ await bot.replyFile(event, bytes, { mimeType: "image/png" }); // Outside the han
 
 `bot.replyFile` takes the same original `ctx.input.event` as `bot.reply`, not an event ID. Both forms return the normal send result. The anchor decides the visibility:
 
-- Authenticated kind-14 DM: encrypt the bytes and send a kind-15 DM with a reference to the triggering rumor. The optional filename is inside the encrypted message.
+- Authenticated kind-14 or kind-15 DM: encrypt the bytes and send a kind-15 DM with a reference to the triggering rumor. The optional filename is inside the encrypted message.
 - Signed kind 1/1111: **upload the supplied bytes as-is and publicly post the URL**. The reply is kind 1111 with the same root, parent and relay routing as `reply()`, plus an `imeta` tag. The DM filename option is ignored on this path. Only use this form with bytes you intend to publish.
 
 For a new top-level public note rather than a reply, `uploadFile()` supplies the blob metadata; Chirli does not create the kind-1 note.
@@ -172,7 +199,7 @@ await ctx.reply("Got it", { replyTo: ctx.input.id }); // Within a DM handler.
 await bot.send(peerPubkey, "Follow-up", { replyTo: earlierMessage.id });
 ```
 
-`replyTo` is the lowercase hex kind-14 message ID. The SDK writes it as an `e` tag inside the encrypted message. Stored private `Message` objects include the optional parent ID as `message.replyTo`. Omit the option for a plain DM. Public replies instead reference the triggering note/comment automatically and do not accept DM options.
+`replyTo` is the lowercase hex private message ID. The SDK writes it as an `e` tag inside the encrypted message. Stored private `Message` objects include the optional parent ID as `message.replyTo`. Omit the option for a plain DM. Public replies instead reference the triggering note/comment automatically and do not accept DM options.
 
 `bot.getMessage(id)` looks across the Bot's local private conversations and returns `undefined` if no message is stored. It does not fetch from relays. Use `ctx.thread()` to load context relative to the current input in a shared handler.
 
@@ -221,7 +248,7 @@ Every handler has a conversation-scoped `ctx.session` with `getItem`, `setItem`,
 | Method | Behavior |
 | --- | --- |
 | `use(fn)` | Append middleware before message routing |
-| `command(definition, fn, options?)` | Register an explicitly scoped command with an optional typed argument schema |
+| `command(definition, fn, options?)` | Register a command with optional scopes and an optional typed argument schema |
 | `handle(fn)` | Register the handler for messages with no matching command |
 | `catch(observer)` | Observe session/middleware failures without consuming them |
 | `getCommandDefinitions()` | Detached snapshots of this Bot's active definitions |
@@ -232,7 +259,7 @@ Routing calls the first matching command with `(ctx, args)`. If none matches, it
 
 When args is a Zod 4 object, TypeScript infers its validated output in a separate handler-only ctx.args and the existing second handler parameter. The middleware context is not mutated; its property descriptors, methods and shared session are retained on the handler view. Ordinary middleware/fallback Context has no args. Required values are present, optional values include `undefined`, and enum values use the declared choices. For a definition stored in a separate variable, use `as const satisfies BotCommandDefinition` to preserve its literal types. A dynamic definition exposes unknown argument values until narrowed.
 
-The published `d` equals the command name; custom `id` and the old string shorthand are rejected. Supply `scopes` containing at least one distinct `kind:14`, `kind:1` or `kind:1111`; no kind is inserted implicitly. The same scopes govern publication and authenticated routing. `authorize(ctx, invocation)` controls execution independently of public metadata.
+The published `d` equals the command name; custom `id` and the old string shorthand are rejected. Omit `scopes` to use `["kind:14", "kind:1", "kind:1111"]`. An explicit list replaces the defaults and must contain at least one supported kind. Duplicate kinds are rejected. Public kinds require `publicInbox.relays`. Kind 15 files go through middleware and `handle()` because their content is an attachment URL. `authorize(ctx, invocation)` controls execution independently of public metadata.
 
 `ctx.input` and `await ctx.thread({limit})` work across private and public input. `ctx.reply()` and `ctx.react()` stay encrypted for private input and publish kind 1111 and kind 7, respectively, for public input. Use Bot methods for receipt observation and local private history inspection. See [public inputs and threads](PUBLIC.md) for explicit inbox configuration, target rules and coverage limits.
 
@@ -261,7 +288,7 @@ Custom `Transport` supplies `query`, `subscribe`, `publish` and `close`. Custom 
 
 `refreshPeer(pubkey)`, `encryptionKeys()` and `rotateEncryptionKey()` expose peer refresh and public key-custody operations. See [keys](KEYS.md) for retention, own-declaration conflicts and mode changes.
 
-Exported `RelayError`, `SignerError`, `StorageEncryptionError` and `Nip4eCompatibilityError` distinguish operational failures. Relay diagnostics sanitize URLs/reasons; application error observers may still see sensitive business context. Optional timing observers cannot alter transport success. See [live diagnostics](../examples/live/README.md#diagnose-slow-replies).
+Exported `RelayError`, `SignerError`, `StorageEncryptionError` and `Nip4eCompatibilityError` distinguish operational failures. Relay diagnostics sanitize URLs/reasons; application error observers may still see sensitive business context. Optional timing observers cannot alter transport success. See [live diagnostics](https://github.com/CodyTseng/chirli/blob/main/examples/live/README.md#diagnose-slow-replies).
 
 Command removal is expressed by the next startup registry, not a runtime method. `syncCommands()` returns only `added`, `updated`, `removed` and optionally waits/retries automatic synchronization; normal startup and running changes require no manual call. Startup performs broad author-only kind 31992 reads per write relay, without `#d` or remote kind 5 queries. Discovery independently reads 31992 plus kind 5, adding `#d` only when `ids` is supplied, and returns no index result field. Protocol-level `CommandDefinition.id` still denotes an external event's actual `d`, separate from its event hash. See [upgrade details](NIP-CD.md#upgrade-behavior).
 
@@ -275,7 +302,7 @@ Timing covers the downstream middleware/command/fallback chain, including reply 
 
 ## Replies and context after a handler
 
-`bot.reply(event,text,options?)`, `bot.replyFile(event,bytes,options?)`, `bot.react(event,reaction?)` and `bot.thread(event,options?)` accept the original `ctx.input.event`: a signed kind 1/1111 Event or an authenticated decrypted kind 14 Rumor. No ID/string, outer gift wrap, context wrapper or token overload is accepted. They use the same routing and visibility as their handler counterparts. Private `replyTo` stays optional and is not inserted implicitly. Public replies reject nonempty DM send options.
+`bot.reply(event,text,options?)`, `bot.replyFile(event,bytes,options?)`, `bot.react(event,reaction?)` and `bot.thread(event,options?)` accept the original `ctx.input.event`: a signed kind 1/1111 Event or an authenticated decrypted kind 14 or 15 Rumor. No ID/string, outer gift wrap, context wrapper or token overload is accepted. They use the same routing and visibility as their handler counterparts. Private `replyTo` stays optional and is not inserted implicitly. Public replies reject nonempty DM send options.
 
 ```ts
 // jobs is an application-owned queue; protect plaintext DM events in its storage.

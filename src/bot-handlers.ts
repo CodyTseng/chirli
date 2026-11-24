@@ -26,6 +26,12 @@ import {
   type CommandInvocation,
 } from "./nipcd.js";
 
+const defaultCommandScopes: readonly string[] = [
+  "kind:14",
+  "kind:1",
+  "kind:1111",
+];
+
 export interface Context<S = Record<string, unknown>> {
   input: Input;
   thread(options?: ThreadOptions): Promise<ThreadResult>;
@@ -178,10 +184,11 @@ export class BotHandlers<S = Record<string, unknown>> {
       );
     const { title, description, authorize } = options;
     if (typeof command !== "object" || command === null)
-      throw new TypeError("Use a command definition with explicit scopes");
+      throw new TypeError("Use a command definition object");
     const schema = command.args ?? z.object({});
     const definition: CommandDefinition = {
       ...command,
+      scopes: command.scopes ?? defaultCommandScopes,
       args: commandArguments(schema),
       id: command.command,
       title: command.title ?? title ?? command.command,
@@ -194,13 +201,11 @@ export class BotHandlers<S = Record<string, unknown>> {
     );
     if (
       !kinds.length ||
-      kinds.some(
-        (scope) => !["kind:14", "kind:1", "kind:1111"].includes(scope),
-      ) ||
+      kinds.some((scope) => !defaultCommandScopes.includes(scope)) ||
       new Set(kinds).size !== kinds.length
     )
       throw new TypeError(
-        "Commands require distinct supported kind scopes: kind:14, kind:1, kind:1111",
+        `Commands require distinct supported kind scopes: ${defaultCommandScopes.join(", ")}`,
       );
     this.register(snapshot);
     this.commandHandlers.set(snapshot.id, async (ctx, executor) => {
@@ -352,7 +357,7 @@ export class BotHandlers<S = Record<string, unknown>> {
     );
     const ctx: Context<S> = {
       session,
-      input: inputOf(message.rumor),
+      input: client.inputForMessage(message),
       thread: (options) => client.threadPrivate(anchor, options),
       sender: message.sender,
       conversation: message.conversation,
@@ -427,8 +432,10 @@ export class BotHandlers<S = Record<string, unknown>> {
         await middleware[i](ctx, () => dispatch(i + 1));
       } else {
         admit?.();
-        for (const command of commands) {
-          if (await command(ctx, client.pubkey)) return;
+        if (event.kind !== 15) {
+          for (const command of commands) {
+            if (await command(ctx, client.pubkey)) return;
+          }
         }
         await fallback?.(ctx);
       }

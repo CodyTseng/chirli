@@ -1,6 +1,6 @@
 # Public notes, comments and private input
 
-Chirli accepts authenticated kind 14 DMs and verified public kind 1/1111 commands. Applications still own message processing and authorization. There is no general event-adapter framework or AI dependency.
+Chirli accepts authenticated kind 14 and kind 15 DMs and verified public kind 1/1111 commands. Applications still own message processing and authorization. There is no general event-adapter framework or AI dependency.
 
 ## Explicit registration and inbox
 
@@ -14,7 +14,7 @@ const bot = new Bot({
   writeRelays: ["wss://your-write.example"],
 });
 bot.command(
-  { command: "ping", scopes: ["kind:14", "kind:1", "kind:1111"] },
+  { command: "ping" },
   async (ctx) => {
     await ctx.reply("pong");
   },
@@ -24,7 +24,7 @@ await bot.start();
 
 The example URLs are placeholders. Public inbox URLs must be chosen explicitly by the operator; no default public firehose opens. A public subscription selects only kinds declared by current commands, with a 500-event initial window per relay. Runtime additions update public subscriptions after command catalog synchronization. To remove commands, omit them from the next registry and restart; startup withdraws their definitions. DM subscription, metadata publication and automatic kind 31992 reconciliation retain their existing behavior.
 
-`scopes` is required and must contain at least one supported kind. Duplicate or unsupported kind scopes are rejected. Same-type scopes are alternatives; different scope types combine. Scope checks use the authenticated rumor/public event and actual source relay, never configured-relay membership as proof of provenance. Registration/publication and routing use the same scopes.
+Omitting `scopes` publishes `kind:14`, `kind:1` and `kind:1111`. An explicit list replaces the defaults and must contain at least one supported kind. Kind 15 files go through middleware and `handle()`. Duplicate or unsupported kind scopes are rejected. Same-type scopes are alternatives; different scope types combine. Scope checks use the authenticated rumor/public event and actual source relay, never configured-relay membership as proof of provenance. Registration/publication and routing use the same scopes.
 
 Public invocation must start at content index zero. Either `/ping@npub...` or `/ping@nostr:npub...` explicitly selects the bot; no `p` tag is required. An unqualified `/ping` is accepted only when the distinct lowercase `p` targets consist solely of this bot. A conflicting qualifier remains rejected even with the bot's `p` tag. An ordinary structural reply or mention is never an invocation. These stricter public targeting rules are Chirli policy; NIP-CD itself permits multiple executors to match an unqualified invocation. Public `handle()`/middleware runs only for admitted registered invocations, not arbitrary notes. DM fallback behavior is unchanged.
 
@@ -32,7 +32,7 @@ Signatures, kind, structural references, source, invocation and scopes are check
 
 ## Shared context and privacy
 
-`ctx.input` contains `{id,sender,createdAt,text,event}`. `createdAt` is Nostr seconds. `event` is the authenticated decrypted kind 14 rumor for DMs, or the signature-verified raw public event. Anonymous gift-wrap keys are never exposed as the sender.
+`ctx.input` contains `{id,sender,createdAt,kind,text,event}`. `createdAt` is Nostr seconds. `event` is the authenticated decrypted kind 14 or 15 rumor for DMs, or the signature-verified raw public event. A kind-15 input also has `file` and empty `text`. [Receiving private files](API.md#receive-and-download-a-private-file) Anonymous gift-wrap keys are never exposed as the sender.
 
 `ctx.reply(text)` encrypts a DM when the input is private. For public inputs it signs kind 1111 with uppercase root scope and lowercase direct parent references, including mixed legacy kind 1/comment ancestry. Only the root author and direct parent author are copied. Missing/malformed legacy roots cause an error instead of a guessed attachment. An explicit modern root is preserved as declared in the signed comment; this does not prove the root's availability or truthfulness. A relay ACK means relay acceptance, never delivery or reading.
 
@@ -77,7 +77,7 @@ Live attempts are serial per declared public root, and different roots can proce
 
 ## Command definitions and references
 
-For a private command use `command({command:'ping',scopes:['kind:14']},handler)`. For trailing text declare `args:z.object({text:z.string().optional().meta({label:'Text',nipcdType:'text'})})`. No scope is inserted implicitly. Custom command identifiers are rejected; `d` is the command name. Renames are removal plus addition. Foreign protocol definitions retain their actual `d` values when decoded.
+For a private command use `command({command:'ping',scopes:['kind:14']},handler)`. For trailing text declare `args:z.object({text:z.string().optional().meta({label:'Text',nipcdType:'text'})})`. Custom command identifiers are rejected; `d` is the command name. Renames are removal plus addition. Foreign protocol definitions retain their actual `d` values when decoded.
 
 References: [NIP-22](https://nips.nostr.com/22), [NIP-CD draft](https://github.com/nostr-protocol/nips/blob/master/CD.md), and read-only review of Jumble's MIT-licensed structural/thread/routing patterns. No running Jumble device or public relay interoperability is covered by local tests.
 

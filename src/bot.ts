@@ -110,7 +110,9 @@ export class Bot<S = Record<string, unknown>> {
         client.on("message", (message) => {
           for (const observer of this.#observers) {
             void Promise.resolve()
-              .then(() => observer(structuredClone(message)))
+              .then(() =>
+                observer(client.withAttachment(structuredClone(message))),
+              )
               .catch((error) => client.report(error, structuredClone(message)));
           }
         });

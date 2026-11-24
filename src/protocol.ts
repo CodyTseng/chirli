@@ -376,7 +376,7 @@ function* decode(
         if (
           !validateEvent(r) ||
           !validTimestamp(r.created_at) ||
-          r.kind !== 14 ||
+          (r.kind !== 14 && r.kind !== 15) ||
           r.pubkey !== seal.pubkey ||
           r.id !== getEventHash(r) ||
           "sig" in r

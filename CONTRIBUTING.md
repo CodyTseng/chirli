@@ -11,7 +11,9 @@ npm ci --ignore-scripts
 npm run check
 ```
 
-`check` builds from a clean `dist/`, checks all TypeScript, runs tests, executes fourteen offline examples, and checks an actual npm tarball in an isolated consumer. Local WebSocket tests and the packaged loopback demo need permission to bind loopback sockets. No public relays, account keys, or paid APIs are required.
+`check` builds from a clean `dist/`, checks all TypeScript, runs tests, executes fourteen offline examples, and checks an actual npm tarball in an isolated consumer. The npm tarball contains the SDK and documentation. The check runs demos and live CLI help from the checkout against the packed SDK. Local WebSocket tests and the loopback demo need permission to bind loopback sockets. No public relays, account keys, or paid APIs are required.
+
+Run `npm run pack:release` to build, verify, and write the release tarball to the checkout. The checkout manifest is private and keeps the development scripts. Publish the verified tarball with `npm publish ./chirli-<version>.tgz`.
 
 Use `npm run format` to apply Biome's default formatting and `npm run lint` to see its recommended lint warnings and errors. `npm run check:style` is the read-only CI style check; formatting differences and lint errors fail it. Biome covers JS/TS under `src`, `test`, `examples` and `scripts`, excluding fixtures. TypeScript still runs separately.
 
@@ -33,7 +35,7 @@ The optional `PSST_SOURCE=/path/to/psstpsst/src/services/crypto/nip17-gift-wrap.
 - Never commit credentials, real account events, personal databases, or application plaintext. The committed protocol fixture uses disposable keys; keep its provenance and license notice.
 - Keep changes focused. Explain what changed, why, tests run, compatibility and known limits in a contribution description. Do not claim delivery/read confirmation or exactly-once effects from relay ACKs.
 
-See [API.md](docs/API.md), [signers](docs/SIGNERS.md), [recovery](docs/RECOVERY.md), [ARCHITECTURE.md](ARCHITECTURE.md) and [examples/README.md](examples/README.md). Dependency changes must preserve a reproducible lockfile and update THIRD_PARTY_NOTICES.md when licenses or copied code change.
+See [API.md](docs/API.md), [signers](docs/SIGNERS.md), [recovery](docs/RECOVERY.md), [ARCHITECTURE.md](ARCHITECTURE.md) and [examples/README.md](https://github.com/CodyTseng/chirli/blob/main/examples/README.md). Dependency changes must preserve a reproducible lockfile and update THIRD_PARTY_NOTICES.md when licenses or copied code change.
 
 ## Reports and licensing
 

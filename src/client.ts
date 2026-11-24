@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+import { AttachmentCache, parseAttachment } from "./attachments.js";
 import {
   encryptAttachment,
   normalizeBlossomDownloadOrigins,
@@ -16,6 +18,7 @@ import {
 } from "./public-inbox.js";
 import {
   inputOf,
+  type Input,
   threadLimit,
   type ThreadOptions,
   type ThreadResult,
@@ -100,7 +103,7 @@ export interface SendResult {
 }
 
 export interface SendOptions {
-  /** ID of the decrypted kind-14 message being replied to. */
+  /** ID of the decrypted private message being replied to. */
   replyTo?: string;
 }
 
@@ -122,6 +125,8 @@ export interface CommonClientOptions {
   discoveryRelays?: readonly string[];
   blossomServers?: readonly string[];
   blossomDownloadOrigins?: readonly string[];
+  /** Root for verified plaintext attachments, scoped by account below this directory. */
+  attachmentDirectory?: string;
   storageKey?: Uint8Array;
   historyLimit?: number;
   database?: string;
@@ -180,6 +185,7 @@ export class Client {
       relays: string[];
     };
   private metadataLookupRelays: string[];
+  private readonly attachments: AttachmentCache;
   private readonly blossomServers: readonly string[];
   private readonly blossomDownloadOrigins: ReadonlySet<string>;
   private announcements: Announcements;
@@ -302,8 +308,27 @@ export class Client {
       throw new TypeError(
         "Internal storage accepts only a database path; use messageStorage for messages",
       );
+    const database = options.database ?? "psstpsst.sqlite";
+    if (
+      options.attachmentDirectory !== undefined &&
+      (typeof options.attachmentDirectory !== "string" ||
+        !options.attachmentDirectory.trim())
+    ) {
+      throw new TypeError("attachmentDirectory must be a nonempty path");
+    }
+    this.attachments = new AttachmentCache(
+      resolve(
+        options.attachmentDirectory ??
+          `${database === ":memory:" ? "psstpsst.sqlite" : database}.attachments`,
+        this.account.pubkey,
+      ),
+      new Set([
+        ...this.blossomServers.map((server) => new URL(server).origin),
+        ...this.blossomDownloadOrigins,
+      ]),
+    );
     this.coreStore = new Store(
-      options.database ?? "psstpsst.sqlite",
+      database,
       options.storageKey,
       scope,
       options.messageStorage,
@@ -598,14 +623,18 @@ export class Client {
     const conversation = own
       ? r.tags.find((tag) => tag[0] === "p")?.[1]
       : r.pubkey;
-    if (!conversation || (!own && !this.coreStore.claimInput(r.id)))
+    if (
+      !conversation ||
+      (r.kind === 15 && !parseAttachment(r)) ||
+      (!own && !this.coreStore.claimInput(r.id))
+    )
       return false;
     const replyTo = replyTarget(r);
     const message: Message = {
       id: r.id,
       sender: r.pubkey,
       conversation,
-      text: r.content,
+      text: r.kind === 15 ? "" : r.content,
       timestamp: timestamp(r),
       source,
       direction: own ? "outgoing" : "incoming",
@@ -710,7 +739,8 @@ export class Client {
   getMessage(id: string, peer?: string): Message | undefined {
     this.assertOpen();
     if (!hexKey(id)) throw new TypeError("Invalid message ID");
-    return this.coreStore.getMessage(id, peer);
+    const message = this.coreStore.getMessage(id, peer);
+    return message && this.withAttachment(message);
   }
 
   getMessageState(id: string): MessageState | undefined {
@@ -723,7 +753,9 @@ export class Client {
 
   listMessages(options?: import("./store.js").MessageListOptions) {
     this.assertOpen();
-    return this.coreStore.listMessages(options);
+    const page = this.coreStore.listMessages(options);
+    for (const entry of page.entries) this.withAttachment(entry.message);
+    return page;
   }
 
   // Closing rejects new work, but a draining handler must still commit its session.
@@ -865,7 +897,27 @@ export class Client {
     },
   ) {
     this.assertOpen();
-    return this.coreStore.history(peer, options);
+    const page = this.coreStore.history(peer, options);
+    for (const message of page.messages) this.withAttachment(message);
+    return page;
+  }
+
+  withAttachment(message: Message): Message {
+    const { id, rumor, conversation } = message;
+    const file = this.attachments.attachment(
+      rumor,
+      () =>
+        !this.closed &&
+        this.coreStore.getMessage(id, conversation) !== undefined,
+    );
+    if (file) message.file = file;
+    return message;
+  }
+
+  inputForMessage(message: Message): Input {
+    const input = inputOf(message.rumor);
+    const { file } = this.withAttachment(message);
+    return file ? { ...input, file } : input;
   }
 
   /** Rebind an unsigned rumor only to this account's authenticated incoming record. */
@@ -882,9 +934,13 @@ export class Client {
       if (!this.publicInbox) throw new Error("Public inbox is not configured");
       return this.publicInbox.target(snapshot as Event);
     }
-    if (snapshot.kind !== 14 || "sig" in snapshot || !hexKey(snapshot.id))
+    if (
+      (snapshot.kind !== 14 && snapshot.kind !== 15) ||
+      "sig" in snapshot ||
+      !hexKey(snapshot.id)
+    )
       throw new TypeError(
-        "Expected a signed kind 1/1111 event or authenticated kind 14 rumor",
+        "Expected a signed kind 1/1111 event or authenticated kind 14/15 rumor",
       );
     const message = this.coreStore.getMessage(snapshot.id);
     if (!message) {
@@ -915,7 +971,7 @@ export class Client {
         snapshot.id !== getEventHash(snapshot) ||
         canonical(snapshot) !== canonical(message.rumor) ||
         message.id !== snapshot.id ||
-        message.text !== snapshot.content ||
+        message.text !== (snapshot.kind === 15 ? "" : snapshot.content) ||
         message.timestamp !== timestamp(snapshot) ||
         message.replyTo !== replyTarget(snapshot)
       )
@@ -1029,7 +1085,7 @@ export class Client {
     let cursor: string | undefined;
     const prior: Message[] = [];
     for (let page = 0; page < 10 && prior.length <= limit; page++) {
-      const history = this.history(message.conversation, {
+      const history = this.coreStore.history(message.conversation, {
         limit: 100,
         cursor,
       });
@@ -1048,7 +1104,7 @@ export class Client {
       entries: prior
         .slice(0, limit)
         .reverse()
-        .map((item) => inputOf(item.rumor)),
+        .map((item) => this.inputForMessage(item)),
       complete: false,
       coverage: "local-conversation",
       reason: "local-only",

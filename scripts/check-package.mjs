@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+  cp,
   mkdtemp,
   mkdir,
   readFile,
@@ -31,11 +32,27 @@ function run(command, args, cwd = root, env = process.env) {
   return result.stdout;
 }
 try {
-  // Build first with npm run build. Packing is offline and suppresses lifecycle hooks here.
+  // Stage the publishable package without changing the checkout manifest.
+  const staging = join(scratch, "release");
+  await mkdir(staging);
+  const release = JSON.parse(
+    await readFile(join(root, "package.json"), "utf8"),
+  );
+  delete release.private;
+  delete release.scripts;
+  delete release.devDependencies;
+  for (const file of release.files.filter((file) => !file.startsWith("!"))) {
+    await cp(join(root, file), join(staging, file), { recursive: true });
+  }
+  await writeFile(
+    join(staging, "package.json"),
+    `${JSON.stringify(release, null, 2)}\n`,
+  );
+
   const output = run(
     "npm",
     ["pack", "--ignore-scripts", "--json", "--pack-destination", scratch],
-    root,
+    staging,
     {
       ...process.env,
       npm_config_cache: join(scratch, "npm-cache"),
@@ -48,6 +65,7 @@ try {
   for (const required of [
     "dist/index.js",
     "dist/blossom.js",
+    "dist/attachments.js",
     "dist/announcements.js",
     "dist/commands.js",
     "dist/command-discovery.js",
@@ -69,13 +87,6 @@ try {
     "dist/storage-sqlite.js",
     "dist/message-storage.js",
     "dist/message-storage-sqlite.js",
-    "dist/examples/local.js",
-    "dist/examples/protocol-modes.js",
-    "examples/README.md",
-    "dist/examples/live/commands.js",
-    "dist/examples/live/ready.js",
-    "dist/examples/live/notes-handler.js",
-    "examples/live/README.md",
     "docs/API.md",
     "docs/TUTORIAL.md",
     "docs/SESSIONS.md",
@@ -87,19 +98,20 @@ try {
   }
   for (const file of files) {
     assert.ok(
-      /^(dist\/|examples\/|docs\/(API|TUTORIAL|SIGNERS|RECOVERY|NIP-CD|INTEROPERABILITY|KEYS|STORAGE|SESSIONS|RELAYS|ACCESS|PUBLIC)\.md$|package\.json$|README\.md$|ARCHITECTURE\.md$|THIRD_PARTY_NOTICES\.md$|LICENSE$|SECURITY\.md$|CONTRIBUTING\.md$)/.test(
+      /^(dist\/|docs\/(API|TUTORIAL|SIGNERS|RECOVERY|NIP-CD|INTEROPERABILITY|KEYS|STORAGE|SESSIONS|RELAYS|ACCESS|PUBLIC)\.md$|package\.json$|README\.md$|ARCHITECTURE\.md$|THIRD_PARTY_NOTICES\.md$|LICENSE$|SECURITY\.md$|CONTRIBUTING\.md$)/.test(
         file,
       ),
       `Unexpected package file: ${file}`,
     );
     assert.ok(
-      !/(^|\/)(test|fixtures|node_modules|\.git)(\/|$)|\.sqlite|\.db$|\.env|\.identity\.json$|\.tgz$/.test(
+      !/(^|\/)(examples|test|fixtures|node_modules|\.git)(\/|$)|\.sqlite|\.db$|\.env|\.identity\.json$|\.tgz$/.test(
         file,
       ),
       `Forbidden package file: ${file}`,
     );
   }
-  run("tar", ["-xzf", join(scratch, manifest.filename), "-C", scratch]);
+  const tarball = join(scratch, manifest.filename);
+  run("tar", ["-xzf", tarball, "-C", scratch]);
   const consumer = join(scratch, "consumer"),
     modules = join(consumer, "node_modules");
   await mkdir(modules, { recursive: true });
@@ -108,6 +120,11 @@ try {
   const packedManifest = JSON.parse(
     await readFile(join(packed, "package.json"), "utf8"),
   );
+  for (const key of ["private", "scripts", "devDependencies"])
+    assert.ok(
+      !Object.hasOwn(packedManifest, key),
+      `Unexpected manifest field: ${key}`,
+    );
   assert.ok(!Object.hasOwn(packedManifest.dependencies, "qrcode-generator"));
   assert.deepEqual(
     await readFile(join(packed, "LICENSE")),
@@ -213,6 +230,11 @@ const recover: () => Promise<HistorySyncResult[]> = () => bot.syncHistory();
     ],
     consumer,
   );
+  // Run checkout examples as consumer code so their imports resolve to the packed SDK.
+  const compiledExamples = join(consumer, "examples");
+  await cp(join(root, "dist", "examples"), compiledExamples, {
+    recursive: true,
+  });
   for (const name of [
     "commands",
     "history",
@@ -230,22 +252,22 @@ const recover: () => Promise<HistorySyncResult[]> = () => bot.syncHistory();
     "public",
     "async-reply",
   ]) {
-    run(
-      process.execPath,
-      [join(packed, "dist/examples", `${name}.js`)],
-      consumer,
-    );
+    run(process.execPath, [join(compiledExamples, `${name}.js`)], consumer);
   }
   for (const name of ["setup", "commands", "echo", "session", "notes"])
     run(
       process.execPath,
-      [join(packed, "dist/examples/live", `${name}.js`), "--help"],
+      [join(compiledExamples, "live", `${name}.js`), "--help"],
       consumer,
       { PATH: process.env.PATH ?? "", NODE_NO_WARNINGS: "1" },
     );
   console.log(
-    `Package check passed: chirli@${manifest.version}; ${files.length} files; ESM exports, TypeScript consumer and 15 compiled offline/loopback demos + 5 live CLI help checks; no registry access.`,
+    `Package check passed: chirli@${manifest.version}; ${files.length} files; ESM exports, TypeScript consumer, 15 checkout demos and 5 live CLI help checks against the packed SDK.`,
   );
+  if (process.argv.includes("--write")) {
+    await cp(tarball, join(process.cwd(), manifest.filename));
+    console.log(`Wrote ${manifest.filename}`);
+  }
 } finally {
   await rm(scratch, { recursive: true, force: true });
 }

@@ -47,6 +47,7 @@ await runLive<State>(
     );
 
     bot.handle(async (ctx) => {
+      if (ctx.input.kind !== 14) return;
       const name = await ctx.session.getItem("name");
       if (name === undefined) {
         const newName = ctx.input.text.trim().slice(0, 80);

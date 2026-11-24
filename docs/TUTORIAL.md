@@ -4,7 +4,7 @@ Run the included bot, add a command and keep state between messages. Then use th
 
 ## 1. Run the existing bot
 
-Use Node.js 24+:
+Use Node.js 24+ and run these commands from the GitHub checkout.
 
 ```sh
 npm ci --ignore-scripts
@@ -14,7 +14,7 @@ npm run bot:commands
 
 Wait for the ready banner. Send `/ping` to its printed npub from another Nostr account. Press Ctrl+C to stop.
 
-On first launch the runner creates credentials beside `.chirli/bot.sqlite`. Later launches reuse them and the database. Local storage is plaintext unless a storage key is configured. To configure an existing nsec, bunker or custom relays, follow [live setup](../examples/live/README.md).
+On first launch the runner creates credentials beside `.chirli/bot.sqlite`. Later launches reuse them and the database. Local storage is plaintext unless a storage key is configured. The live setup guide covers existing nsec keys, bunker and custom relays. [Live setup](https://github.com/CodyTseng/chirli/blob/main/examples/live/README.md)
 
 ## 2. Add a command
 
@@ -41,7 +41,7 @@ npm run bot:commands
 
 Send `/hello` to get a greeting with a `nostr:npub1…` mention. Clients that support inline mentions can display it as the sender's profile name. See [NIP-27](https://github.com/nostr-protocol/nips/blob/master/27.md).
 
-`runLive` is an example application helper, not an SDK API. It selects a signer, constructs and starts a Bot, prints readiness and closes application-owned resources on signals. See [runtime.ts](../examples/live/runtime.ts).
+The `runLive` helper selects a signer, constructs and starts a Bot, prints readiness and closes application-owned resources on signals. [Example runtime](https://github.com/CodyTseng/chirli/blob/main/examples/live/runtime.ts)
 
 ### Validate command parameters with Zod
 
@@ -144,11 +144,10 @@ Commands are declared automatically as kind `31992`, with `d` derived from the c
 
 ## 6. Move into your own application
 
-The package is not published yet. Create a local tarball from this checkout:
+Create a verified release tarball from this checkout.
 
 ```sh
-npm run build
-npm pack --ignore-scripts
+npm run pack:release
 ```
 
 Install the resulting tarball in your ESM application, for example `npm install /absolute/path/to/chirli/chirli-0.1.0.tgz`. Import from `chirli`, without internal source paths.
@@ -176,4 +175,4 @@ Use `bunkerSigner(uri, { clientSecret })` through the same interface when signin
 
 On shutdown, stop application timers and await their work, close the Bot, then close injected resources. Bot closes only its internally created transport/storage; signers and other injected resources remain yours.
 
-For a complete application lifecycle, adapt the existing [live runner](../examples/live/runtime.ts). For isolated API examples, use the [12 offline walkthroughs](../examples/README.md).
+The live runner shows the complete application lifecycle. The offline walkthroughs illustrate individual APIs. [Live runner](https://github.com/CodyTseng/chirli/blob/main/examples/live/runtime.ts) · [Examples](https://github.com/CodyTseng/chirli/blob/main/examples/README.md)

@@ -71,9 +71,8 @@ function storageBoundary(client: Client, storage: MessageStorage) {
 void storageBoundary;
 
 function commandHandlers(bot: Bot, dynamic: BotCommandDefinition) {
-  // @ts-expect-error Commands require explicit scopes.
   bot.command({ command: "implicit" }, () => {});
-  // @ts-expect-error The old shorthand cannot declare routing scope.
+  // @ts-expect-error Commands require a definition object.
   bot.command("implicit", () => {});
   bot.command(
     { command: "public", scopes: ["kind:1", "kind:1111"] },

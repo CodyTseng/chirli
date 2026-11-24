@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import type { Event } from "nostr-tools";
+import type { FileAttachment } from "./attachments.js";
 import { replyTarget, type Rumor } from "./protocol.js";
 import type {
   StorageAdapter,
@@ -22,8 +23,9 @@ export interface Message {
   source: "live" | "history";
   direction: "incoming" | "outgoing";
   rumor: Rumor;
+  file?: FileAttachment;
   relay?: string;
-  /** ID of the kind-14 parent referenced in the encrypted message. */
+  /** ID of the private parent referenced in the encrypted message. */
   replyTo?: string;
 }
 

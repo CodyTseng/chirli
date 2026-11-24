@@ -27,7 +27,7 @@ The runner creates persistent credentials and a database on first launch. Config
 | `npm run bot:session` | Persist conversation state |
 | `npm run bot:notes` | `/remember`, `/notes` |
 
-See [live setup](examples/live/README.md) for credentials, bunker authorization, relays and diagnostics. To explore without external connections, run `npm run examples:smoke` after building.
+The GitHub checkout contains live and offline examples. To explore without external connections, run `npm run examples:smoke` after building. [Live setup](https://github.com/CodyTseng/chirli/blob/main/examples/live/README.md)
 
 ## Build your own bot
 
@@ -225,14 +225,14 @@ Start with the [first bot tutorial](docs/TUTORIAL.md) for a step-by-step path fr
 | Guide | Contents |
 | --- | --- |
 | [API](docs/API.md) | Bot, middleware and public types |
-| [Examples](examples/README.md) | Fourteen offline demos and a loopback demo |
+| [Examples](https://github.com/CodyTseng/chirli/blob/main/examples/README.md) | Fourteen offline demos and a loopback demo |
 | [Sessions](docs/SESSIONS.md) | Conversation state, resets and a custom SQLite session store |
 | [Storage](docs/STORAGE.md) | Message adapters, encryption and persistence contracts |
 | [Architecture](ARCHITECTURE.md) | Layer boundaries and failure semantics |
 | [Contributing](CONTRIBUTING.md) | Development and validation expectations |
 | [Security](SECURITY.md) | Trust boundaries and known limitations |
 
-Chirli supports one-to-one private text, reply references, private and public reactions, and explicitly scoped kind 1/1111 public commands. See [public inputs and threads](docs/PUBLIC.md). Groups, receiving or downloading attachments, full archive recovery and exactly-once external effects are outside its scope. One active Bot/process per account database is supported. Public relays, external signer products and production deployments require separate validation.
+Chirli supports one-to-one private text and [file attachments](docs/API.md#receive-and-download-a-private-file), reply references, private and public reactions, and [explicitly scoped kind 1/1111 public commands](docs/PUBLIC.md). Groups, full archive recovery and exactly-once external effects are outside its scope. One active Bot/process per account database is supported. Public relays, external signer products and production deployments require separate validation.
 
 Bot command identifiers come from their command names; custom `id` parameters are rejected. Renaming a command removes the old coordinate and adds the new one. Startup compares one broad author-scoped kind 31992 scan per write relay with the complete local registry; runtime additions synchronize automatically. Remote kind 5 queries belong to independent discovery, while locally pending withdrawals remain durable. See [command lifecycle and upgrade behavior](docs/NIP-CD.md).
 
@@ -262,12 +262,12 @@ await bot.start(); // Command declarations remain automatic.
 
 ## Public input and shared context
 
-Register one explicitly scoped command for DMs, notes and comments. Public reads require `publicInbox: {relays: [...]}`; they never use implicit default relays. `ctx.input` contains the authenticated input. `ctx.reply()` and `ctx.react()` preserve its private or public visibility, and `await ctx.thread({limit:30})` lazily loads prior context. Public context/session storage never reads private conversations.
+Omit `scopes` to publish `kind:14`, `kind:1` and `kind:1111`. Use an explicit list to narrow the scope. File DMs go to `bot.handle()`. Public reads require `publicInbox: {relays: [...]}`; they never use implicit default relays. `ctx.input` contains the authenticated input. `ctx.reply()` and `ctx.react()` preserve its private or public visibility, and `await ctx.thread({limit:30})` lazily loads prior context. Public context/session storage never reads private conversations.
 
 ```ts
 const bot = new Bot({ signer, publicInbox: { relays: publicInboxRelays } });
 bot.command(
-  { command: "ping", scopes: ["kind:14", "kind:1", "kind:1111"] },
+  { command: "ping" },
   async (ctx) => {
     await ctx.reply("pong");
   },

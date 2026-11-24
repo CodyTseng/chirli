@@ -85,14 +85,14 @@ Invocations begin at content index zero:
 
 The qualifier is optional. Both `@npub` and `@nostr:npub` target the executor's identity key.
 
-- Registration uses one object form with explicit scopes. To accept trailing text, declare an optional terminal `text` argument.
+- Registration uses one object form with optional scopes. To accept trailing text, declare an optional terminal `text` argument.
 - A full definition supports positional `pubkey`, `event`, `address`, `relay`, `number`, `bool`, `enum`, `word` and `text` arguments. Numbers are parsed as `bigint`.
 - A terminal `text` argument removes one separator and preserves the rest, including leading spaces and newlines.
 - The first matching command owns the route. An unknown trigger, unselected target or scope mismatch can fall through to the DM `handle()`. Recognized, correctly targeted/scoped commands with invalid arguments never fall through. An authorization denial on the matched command stops routing.
 
 ## Scope rules
 
-Bot requires at least one explicitly declared supported kind: `kind:14`, `kind:1` or `kind:1111`. Duplicate kind scopes are rejected. These exact scopes are published and checked against the verified input; no implicit DM fallback is added. Additional scopes narrow that match:
+Bot publishes `kind:14`, `kind:1` and `kind:1111` by default. An explicit `scopes` list replaces the defaults and must include at least one supported kind. Duplicate kind scopes are rejected. Text command routing checks the published scopes against verified input. Kind 15 files go through middleware and `handle()` because their content is an attachment URL. Additional scopes narrow command matching:
 
 | Scope | Checks |
 | --- | --- |

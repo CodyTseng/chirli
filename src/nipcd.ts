@@ -39,7 +39,7 @@ export type BotCommandDefinition = Omit<
   "id" | "scopes" | "title" | "description" | "args"
 > & {
   id?: never;
-  scopes: readonly string[];
+  scopes?: readonly string[];
   args?: z.ZodObject;
   title?: string;
   description?: string;

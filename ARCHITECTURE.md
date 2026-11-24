@@ -1,6 +1,6 @@
 # Architecture
 
-Chirli is a Node.js SDK for Nostr private text and explicitly scoped public commands. Applications own authorization, business effects, signer credentials and deployment. `src/index.ts` is the public entry point.
+Chirli is a Node.js SDK for Nostr private messages with text or attachments and explicitly scoped public commands. Applications own authorization, business effects, signer credentials and deployment. `src/index.ts` is the public entry point.
 
 ## Module responsibilities
 
@@ -18,7 +18,7 @@ Chirli is a Node.js SDK for Nostr private text and explicitly scoped public comm
 
 Bot owns one internal client. Each queued message runs middleware before routing to a matching command or to the optional text fallback. AI/model adapters belong to applications.
 
-Command execution, publication and discovery are independent: discovery never installs a handler or publishes metadata. `command()` validates explicitly scoped object definitions before registering them in the same command pipeline.
+Command execution, publication and discovery are independent: discovery never installs a handler or publishes metadata. `command()` resolves kind scopes and validates object definitions before registering them in the same command pipeline.
 
 ## Construction and ownership
 
@@ -46,7 +46,7 @@ Giftwrap and seal signatures, rumor hash/author, times and one-to-one routing ar
 
 ## Outgoing messages
 
-A reply references its parent rumor ID through an `e` tag inside the encrypted kind-14 event. Outgoing kind-7 reactions use the same private envelope and durable outbox. Text history and incoming dispatch accept kind 14. Recipient metadata is resolved before queuing. A temporary outgoing message handoff and exact signed envelopes commit together before publication; the message is then inserted into MessageStorage before normal send publication. Each recipient/self envelope requires at least one relay ACK. Failure keeps the bundle pending; retries reuse its IDs and ciphertext.
+A private reply references its parent rumor ID through an `e` tag inside the encrypted event. Outgoing kind-7 reactions use the same private envelope and durable outbox. Private history and dispatch accept kind 14 text and kind 15 file messages. Kind 15 uses the normal middleware and fallback handler and bypasses text command matching. Attachment retrieval is explicit, and verified plaintext files are stored by hash in a local per-account cache. Recipient metadata is resolved before queuing. A temporary outgoing message handoff and exact signed envelopes commit together before publication; the message is then inserted into MessageStorage before normal send publication. Each recipient/self envelope requires at least one relay ACK. Failure keeps the bundle pending; retries reuse its IDs and ciphertext.
 
 Relay acceptance does not establish delivery or reading. A new `send()` call creates a new logical message.
 

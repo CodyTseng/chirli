@@ -7,12 +7,15 @@ import {
 } from "nostr-tools";
 import { decode } from "nostr-tools/nip19";
 import { hexKey, validTimestamp, type Rumor } from "./protocol.js";
+import type { FileAttachment } from "./attachments.js";
 import type { Transport } from "./relay.js";
 export interface Input {
   readonly id: string;
   readonly sender: string;
   readonly createdAt: number;
+  readonly kind: number;
   readonly text: string;
+  readonly file?: FileAttachment;
   readonly event: Event | Rumor;
 }
 export interface ThreadResult {
@@ -47,13 +50,14 @@ export const inputOf = (event: Event | Rumor): Input => ({
   id: event.id,
   sender: event.pubkey,
   createdAt: event.created_at,
-  text: event.content,
+  kind: event.kind,
+  text: event.kind === 15 ? "" : event.content,
   event: structuredClone(event),
 });
 export function publicEvent(input: Event): Event | undefined {
   try {
     const event: Event = structuredClone(input);
-    return ![13, 14, 1059].includes(event.kind) &&
+    return ![13, 14, 15, 1059].includes(event.kind) &&
       validTimestamp(event.created_at) &&
       verifyEvent(event)
       ? event

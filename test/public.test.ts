@@ -88,14 +88,11 @@ test("one command and input API receives kind 14, 1 and 1111; replies preserve p
   bot.onError((error) => {
     errors.push(error);
   });
-  bot.command(
-    { command: "ping", scopes: ["kind:14", "kind:1", "kind:1111"] },
-    async (ctx) => {
-      inputs.push(ctx.input);
-      assert.equal(ctx.sender, author.pubkey);
-      await ctx.reply("pong");
-    },
-  );
+  bot.command({ command: "ping" }, async (ctx) => {
+    inputs.push(ctx.input);
+    assert.equal(ctx.sender, author.pubkey);
+    await ctx.reply("pong");
+  });
   try {
     await bot.start();
     const dm = rumor(author.pubkey, bot.pubkey, "/ping");
@@ -117,6 +114,15 @@ test("one command and input API receives kind 14, 1 and 1111; replies preserve p
       [14, 1, 1111],
     );
     assert.equal(inputs[0].id, dm.id);
+    const definition = published.find((event) => event.kind === 31992);
+    assert.deepEqual(
+      definition?.tags.filter(([tag]) => tag === "s"),
+      [
+        ["s", "kind:14"],
+        ["s", "kind:1"],
+        ["s", "kind:1111"],
+      ],
+    );
     assert.ok(published.some((event) => event.kind === 1059));
     const replies = published.filter((event) => event.kind === 1111);
     assert.equal(replies.length, 2);
@@ -263,7 +269,7 @@ test("public replay and replicas deduplicate durably across stop/start and reope
     await rm(directory, { recursive: true, force: true });
   }
 });
-test("required kind scopes reject missing, duplicate and unsupported kinds; public reads require explicit inbox", async () => {
+test("explicit scopes require supported, distinct kinds; default public scopes require an inbox", async () => {
   const { bot } = setup();
   try {
     for (const scopes of [
@@ -271,6 +277,7 @@ test("required kind scopes reject missing, duplicate and unsupported kinds; publ
       [`author:${author.pubkey}`],
       ["kind:1", "kind:1"],
       ["kind:7"],
+      ["kind:15"],
     ])
       assert.throws(
         () => bot.command({ command: "bad", scopes }, () => {}),
@@ -278,7 +285,7 @@ test("required kind scopes reject missing, duplicate and unsupported kinds; publ
       );
     assert.throws(
       () => bot.command("ping" as never, () => {}),
-      /explicit scopes/,
+      /definition object/,
     );
   } finally {
     await bot.close();
@@ -289,7 +296,7 @@ test("required kind scopes reject missing, duplicate and unsupported kinds; publ
     relays: urls,
     transport: graph([]).transport,
   });
-  privateBot.command({ command: "ping", scopes: ["kind:1"] }, () => {});
+  privateBot.command({ command: "ping" }, () => {});
   await assert.rejects(privateBot.start(), /publicInbox/);
   await privateBot.close();
 });

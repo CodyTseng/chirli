@@ -1,6 +1,7 @@
 {
   "name": "chirli",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -14,7 +15,7 @@
   },
   "files": [
     "dist",
-    "examples",
+    "!dist/examples",
     "docs",
     "README.md",
     "ARCHITECTURE.md",
@@ -35,6 +36,7 @@
     "examples:smoke": "node --import tsx scripts/smoke-examples.ts",
     "example:protocol-modes": "node dist/examples/protocol-modes.js",
     "pack:check": "node scripts/check-package.mjs",
+    "pack:release": "npm run build && node scripts/check-package.mjs --write",
     "prepack": "npm run build",
     "check": "npm run check:style && npm run build && npm run typecheck && npm test && npm run examples:smoke && npm run pack:check",
     "example:signers": "node dist/examples/signers.js",

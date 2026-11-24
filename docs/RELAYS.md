@@ -19,7 +19,7 @@ await bot.start();
 | `writeRelays` | Publish commands and account metadata | Same as `readRelays` |
 | `discoveryRelays` | Extra publication targets for public account lists | Same as `readRelays` and `writeRelays` |
 
-Defaults are exported as `DEFAULT_DM_RELAYS`, `DEFAULT_READ_RELAYS`, `DEFAULT_WRITE_RELAYS` and `DEFAULT_DISCOVERY_RELAYS`. The DM and write lists must be nonempty. Pass `readRelays: []` or `discoveryRelays: []` to omit the respective role. Peer metadata lookup still queries the union of configured read, write and DM relays. The live examples map these roles to [environment variables](../examples/live/README.md).
+Defaults are exported as `DEFAULT_DM_RELAYS`, `DEFAULT_READ_RELAYS`, `DEFAULT_WRITE_RELAYS` and `DEFAULT_DISCOVERY_RELAYS`. The DM and write lists must be nonempty. Pass `readRelays: []` or `discoveryRelays: []` to omit the respective role. Peer metadata lookup still queries the union of configured read, write and DM relays. The live examples map these roles to [environment variables](https://github.com/CodyTseng/chirli/blob/main/examples/live/README.md).
 
 ## Account announcements
 
@@ -58,7 +58,7 @@ The default WebSocket transport pools normalized relay URLs and shares NIP-42 au
 
 An injected transport is application-owned. Its raw subscriptions report readiness and failures. The Bot manages reconnect and per-relay recovery above the transport.
 
-`RelayError` includes an operation, error code and sanitized relay origin. Optional fields include a network code, HTTP status, WebSocket close code and event kind. An `AggregateError` can contain failures from multiple relays. The live runner formats these diagnostics and supports timing output. See [diagnosing slow replies](../examples/live/README.md#diagnose-slow-replies).
+`RelayError` includes an operation, error code and sanitized relay origin. Optional fields include a network code, HTTP status, WebSocket close code and event kind. An `AggregateError` can contain failures from multiple relays. The live runner formats these diagnostics and supports timing output. See [diagnosing slow replies](https://github.com/CodyTseng/chirli/blob/main/examples/live/README.md#diagnose-slow-replies).
 
 ## Own metadata and peer cache
 

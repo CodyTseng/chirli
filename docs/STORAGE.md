@@ -64,7 +64,7 @@ An error in a handler or state write does not reopen the ID claim. Keep the inte
 
 `storageKey` encrypts payloads with AES-GCM before storage. Without it, payloads use tagged plaintext. Routing metadata and states remain visible. Preserve the original key; missing/wrong keys fail rather than resetting data.
 
-[JsonMessageStorage](../examples/_json-storage.ts) demonstrates the same three operations for small files. It scans an in-memory model; use indexed queries in production. Run `npm run example:storage` to verify custom message history and internal session recovery after restart.
+The `JsonMessageStorage` demo shows these operations for small files using an in-memory scan. Run `npm run example:storage` from the GitHub checkout to verify custom message history and internal session recovery after restart. [JsonMessageStorage example](https://github.com/CodyTseng/chirli/blob/main/examples/_json-storage.ts)
 
 ## Public command journal
 

@@ -103,6 +103,6 @@ This example dedicates the session file to one Bot account and mode. When sharin
 
 Use `await bot.getSession(peerPubkey)` for a detached snapshot from the configured backend, or `await bot.setSession(peerPubkey, snapshot)` to replace it. To reset state from a handler, use `ctx.session.clear()` so the change is committed with that message's other session changes. Schedule external snapshot replacements outside active processing for that conversation to avoid overwriting a handler's pending edits.
 
-Run `npm run build && npm run example:session` to try a session with two disposable accounts. See the [session demo](../examples/session.ts) and the [API reference](API.md).
+Run `npm run build && npm run example:session` from the GitHub checkout to try a session with two disposable accounts. [Session demo](https://github.com/CodyTseng/chirli/blob/main/examples/session.ts) · [API reference](API.md)
 
 Public kind 1/1111 handlers use separate `public:` conversation keys and internal session namespaces. They never read a DM peer session. Custom stores must preserve that separation and account isolation; public threads may involve multiple authors sharing one root session. See [public context](PUBLIC.md#shared-context-and-privacy).
