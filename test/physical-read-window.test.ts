@@ -62,10 +62,11 @@ test('local inbox window settles once, while verified public timestamps gate lat
  }finally{inbox.stop();transport.close();await fixture.close();}
 });
 
-test('fallback DM execution checks decrypted rumor time, never backdated gift-wrap time',async()=>{
+test('fallback DM catch-up uses the activation cutoff, regardless of backdated gift-wrap time',async t=>{
+ t.mock.method(Math,'random',()=>0.75);
  const fixture=await relay(),transport=wire(60),identity=localNip17Identity(),peer=localNip17Identity();fixture.onReq=(socket,id,filter)=>{if(!filter.kinds?.includes(1059))socket.send(JSON.stringify(['EOSE',id]));};
  const client=new Client({identity,transport,relays:[fixture.url],database:':memory:',keySync:false,recovery:false});const handled:string[]=[];client.handle(message=>{handled.push(message.text);});
- try{await client.start();const old=rumor(peer.pubkey,identity.pubkey,'old',1000),fresh=rumor(peer.pubkey,identity.pubkey,'fresh',(Math.floor(Date.now()/1000)+2)*1000);const oldWrap=await wrap(old,peer,identity.pubkey,identity.pubkey,standardEnvelope),freshWrap=await wrap(fresh,peer,identity.pubkey,identity.pubkey,standardEnvelope);assert.ok(freshWrap.created_at<=Math.floor(Date.now()/1000));fixture.push(oldWrap);fixture.push(freshWrap);await until(()=>handled.length===1);await client.idle();assert.deepEqual(handled,['fresh']);assert.equal(client.getMessage(old.id),undefined);assert.equal(await client.receive(oldWrap,'live'),false,'the historical rumor ID was already consumed');assert.equal(client.getMessage(fresh.id)?.source,'live');
+ try{await client.start();const old=rumor(peer.pubkey,identity.pubkey,'old',1000),fresh=rumor(peer.pubkey,identity.pubkey,'fresh',(Math.floor(Date.now()/1000)+2)*1000);const oldWrap=await wrap(old,peer,identity.pubkey,identity.pubkey,standardEnvelope),freshWrap=await wrap(fresh,peer,identity.pubkey,identity.pubkey,standardEnvelope);assert.ok(freshWrap.created_at<=Math.floor(Date.now()/1000));fixture.push(oldWrap);fixture.push(freshWrap);await until(()=>handled.length===1);await client.idle();assert.deepEqual(handled,['fresh']);assert.equal(client.getMessage(old.id),undefined);assert.equal(await client.receive(oldWrap,'live'),false,'a preactivation DM is ignored even on live intake');assert.equal(await client.receive(freshWrap,'live'),false,'an eligible DM was already dispatched from history');assert.equal(client.getMessage(fresh.id)?.source,'history');
  }finally{await client.close();transport.close();await fixture.close();}
 });
 

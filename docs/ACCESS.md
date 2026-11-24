@@ -21,8 +21,8 @@ Custom access checks use the same `bot.use(async (ctx, next) => { ... })` API. R
 
 ## What happens to denied messages
 
-- An eligible live ID stays claimed even if middleware returns without calling `next()` or throws. A duplicate does not revisit middleware after configuration changes, reconnection or restart. `bot.receive()` can return `true` for a newly claimed input that middleware later stops; this does not mean the sender was authorized.
-- If the allowlist stops a live DM from reaching routing, the SDK does not add it to conversation history or invoke receipt observers. An eligible historical incoming DM also claims only its ID, without running middleware or writing its body. The allowlist does not erase existing history.
-- Outgoing sends, self copies, signed same-identity control traffic and transport recovery are unaffected. This is neither an outbound ACL nor a rate limiter. Crypto and remote signer work may occur before the sender is authenticated.
+- An eligible input ID stays claimed even if middleware returns without calling `next()` or throws. A duplicate does not revisit middleware after configuration changes, reconnection or restart. `bot.receive()` can return `true` for a newly claimed input that middleware later stops; this does not mean the sender was authorized.
+- If the allowlist stops a DM from reaching routing, the SDK does not add it to conversation history or invoke receipt observers. DMs recovered after the first activation go through the same middleware. The allowlist does not erase existing history.
+- Outgoing sends, eligible self copies and signed same-identity control traffic do not pass through this middleware. This is neither an outbound ACL nor a rate limiter. Crypto and remote signer work may occur before the sender is authenticated.
 
 Replace the old `inboundPolicy`, `guards` or constructor `allowlist` option with registered middleware. These constructor options now throw instead of silently running unfiltered. See [security](../SECURITY.md) for signer and local storage boundaries.

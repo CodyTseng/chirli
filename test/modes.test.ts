@@ -47,7 +47,7 @@ test('standard NIP-17 interoperates both directions with independent nostr-tools
 
 test('standard intake rejects signatures, authors, rumor hashes and recipients before exposing data', async () => {
   const sender = localNip17Identity(), receiver = localNip17Identity(), outsider = localNip17Identity();
-  const r = rumor(sender.pubkey, receiver.pubkey, 'strict');
+  const r = rumor(sender.pubkey, receiver.pubkey, 'strict', Date.now() + 1000);
   const envelope = async (payload: unknown, tags: string[][] = [], badSeal = false, routes = [receiver.pubkey]) => {
     let seal = await sender.sign({ kind: 13, created_at: r.created_at - 10, tags, content: encrypt(payload, sender.encryptionKey, receiver.pubkey) });
     if (badSeal) seal = { ...seal, sig: '0'.repeat(128) };
@@ -169,9 +169,9 @@ test('mode namespace isolates claimed inputs, accepted history, outbox, sessions
   const base = { mode:'nip4e' as const, identity: split, relays: [relay.url], storageKey: key, database: join(dir, 'shared.sqlite') };
   let client = new Client(base);
   try {
-    const splitRumor = rumor(sender.pubkey, split.pubkey, 'split passive claim');
-    const splitEvent = await wrap(splitRumor, sender, split.pubkey, getPublicKey(split.encryptionKey));
     await client.start();
+    const splitRumor = rumor(sender.pubkey, split.pubkey, 'split recovered claim');
+    const splitEvent = await wrap(splitRumor, sender, split.pubkey, getPublicKey(split.encryptionKey));
     assert.equal(await client.receive(splitEvent, 'history'), true);
     client.store.saveSession(sender.pubkey, { label: 'split' }); client.store.saveCheckpoint('ws://scope.invalid',111);
     client.store.putOutbox('split-outbox', [{ event: splitEvent, relays: [relay.url] }]); await client.close();
@@ -186,9 +186,9 @@ test('mode namespace isolates claimed inputs, accepted history, outbox, sessions
     client = new Client(base);
     assert.equal(client.store.pending().length, 0); assert.equal(client.store.outbox()[0].id, 'split-outbox');
     assert.deepEqual(client.store.session(sender.pubkey), { label: 'split' }); assert.equal(client.store.checkpoint('ws://scope.invalid'),111);
-    assert.deepEqual(client.history(sender.pubkey).messages,[]);
+    assert.deepEqual(client.history(sender.pubkey).messages.map(message=>message.text),['split recovered claim']);
     await client.start();
-    assert.equal(await client.receive(splitEvent,'live'),false,'split mode remembers the passive ID without its payload'); await client.close();
+    assert.equal(await client.receive(splitEvent,'live'),false,'split mode remembers the recovered ID'); await client.close();
     client = new Client({ ...base, identity: pure, mode: 'nip17' });
     assert.ok(client.history(sender.pubkey).messages.some(m=>m.text==='pure live')); assert.deepEqual(client.store.session(sender.pubkey), { label: 'pure' }); assert.equal(client.store.checkpoint('ws://scope.invalid'),222);
   } finally { await client.close(); await relay.close(); await rm(dir, { recursive: true, force: true }); }

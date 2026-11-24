@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import { localIdentity, localNip17Identity } from '../src/protocol.js';
+import { localIdentity, localNip17Identity, rumor, standardEnvelope, wrap } from '../src/protocol.js';
 import { Client } from './client.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -101,8 +101,12 @@ for(const mode of ['nip4e','nip17'] as const){
   bot.command({command:"legacy",title:"legacy",description:"Run /legacy in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})},async ctx=>{await ctx.reply('legacy works');},{});bot.handle(()=>{fallback++;});user.handle(message=>{replies.push(message.text);});
   try{
    const copy=bot.getCommandDefinitions();copy[0].command='mutated';assert.equal(bot.getCommandDefinitions()[0].command,'echo');
-   await user.announce();await service.announce();await stranger.announce();await user.send(b.pubkey,'/echo 1 old');await bot.start();await user.start();
-   assert.equal(commands,0);assert.equal([...relay.events.values()].some(event=>event.kind===31992),true);
+   await user.announce();await service.announce();await stranger.announce();
+   const oldRumor=rumor(a.pubkey,b.pubkey,'/echo 1 old',Date.now()-1000);
+   const oldWrap=await wrap(oldRumor,a,b.pubkey,b.pubkey,standardEnvelope);relay.events.set(oldWrap.id,oldWrap);
+   await bot.start();await service.idle();await user.start();
+   assert.equal(commands,0);assert.equal(service.getMessage(oldRumor.id),undefined);assert.equal(await service.receive(oldWrap,'live',{relay:relay.url}),false);
+   assert.equal([...relay.events.values()].some(event=>event.kind===31992),true);
    await user.send(b.pubkey,'/echo 2 hello\n  world');await until(()=>replies.length===1);assert.equal(replies[0],'2: hello\n  world');
    await stranger.send(b.pubkey,'/echo 3 denied');await until(()=>denied===1);await service.idle();assert.equal(commands,1);assert.equal(fallback,0);
    await user.send(b.pubkey,'/echo invalid ordinary');await service.idle();assert.equal(fallback,0);
@@ -141,7 +145,7 @@ test('a configured DM relay is not proof of invocation provenance; duplicate int
  const client=new Client({mode:'nip4e',identity:receiver,relays:[url],transport,database:':memory:',storageKey:generateSecretKey(),recovery:false});
  const bot=new Bot(client);let commands=0,fallback=0;
  bot.command({...(({id,...local})=>local)(base),scopes:['kind:14',`relay:${url}`],args:z.object({text:z.string().optional().meta({label:'Text',nipcdType:'text'})})},()=>{commands++;});bot.handle(()=>{fallback++;});
- const {rumor,wrap}=await import('../src/protocol.js');const {getPublicKey}=await import('../src/index.js');
+ const {getPublicKey}=await import('../src/index.js');
  try{
   await bot.start();const r=rumor(sender.pubkey,receiver.pubkey,'/echo');
   const unknown=await wrap(r,sender,receiver.pubkey,getPublicKey(receiver.encryptionKey));await client.receive(unknown,'live');await client.idle();assert.equal(commands,0);assert.equal(fallback,1);

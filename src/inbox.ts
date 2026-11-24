@@ -83,6 +83,8 @@ export class InboxSubscription implements Subscription {
     filter: Filter;
     reconnect?: false | ReconnectOptions;
     recovery?: false | RecoveryOptions;
+    /** Activation date in seconds is the baseline until this relay completes a pass. */
+    recoveryBaseline?: number;
     localReadWindow?:boolean;
     receive(event: Event, source: 'live' | 'history', relay: string): void | Promise<void>;
     error(error: unknown): void;
@@ -284,7 +286,7 @@ export class InboxSubscription implements Subscription {
       return this.result(replica.url, 'disabled');
     }
     const through = Math.floor(Date.now() / 1000);
-    const since = Math.max(0, Math.min(this.options.store.checkpoint(replica.url) ?? through, through) - config.overlap);
+    const since = Math.max(0, Math.min(this.options.store.checkpoint(replica.url) ?? this.options.recoveryBaseline ?? through, through) - config.overlap);
     let until = through;
     const result: HistorySyncResult = {
       relay: replica.url,

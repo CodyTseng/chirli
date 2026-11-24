@@ -124,6 +124,12 @@ export class Store {
     return this.messageStorage ? true : inserted;
   }
 
+  ensureDmActivation(pubkey: string, proposedAt: number): number {
+    const activatedAt = this.adapter.ensureDmActivation(pubkey, proposedAt);
+    if (!Number.isSafeInteger(activatedAt) || activatedAt < 0) throw new Error('Invalid stored DM activation time');
+    return activatedAt;
+  }
+
   claimInput(id: string): boolean {
     const result: unknown = this.adapter.claimInput(this.account, id);
     if (result === true || result === false) return result;

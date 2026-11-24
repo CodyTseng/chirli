@@ -18,8 +18,9 @@ test('delayed DM replies and anchored threads match context before and after sam
  let bot=make();const user=new Bot({signer:nsecSigner(peerSecret),database:':memory:',relays:urls,transport:network.transport()}),saved=new Map<string,Event|Rumor>(),received:Input[]=[];let contextThread:unknown;
  const register=()=>bot.handle(async ctx=>{saved.set(ctx.input.id,copy(ctx.input.event));if(ctx.input.text==='trigger'){contextThread=await ctx.thread({limit:2});await ctx.reply('from context',{replyTo:ctx.input.id});}});
  register();user.handle(ctx=>{received.push(ctx.input);});
- try{await user.start();await bot.start();const now=Date.now()-10000;
-  const events=[rumor(peer.pubkey,bot.pubkey,'first',now),rumor(peer.pubkey,bot.pubkey,'second',now+1000),rumor(peer.pubkey,bot.pubkey,'trigger',now+2000),rumor(peer.pubkey,bot.pubkey,'later',now+3000)];
+ try{await user.start();await bot.start();const now=Date.now();
+  const events=[rumor(peer.pubkey,bot.pubkey,'first',now),rumor(peer.pubkey,bot.pubkey,'second',now+1),rumor(peer.pubkey,bot.pubkey,'trigger',now+2),rumor(peer.pubkey,bot.pubkey,'later',now+3)];
+  while(Date.now()<=now+3)await new Promise(resolve=>setTimeout(resolve,1));
   for(const event of events){await bot.receive(await wrap(event,peer,bot.pubkey,bot.pubkey,standardEnvelope),'live',{relay:urls[0]});await bot.idle();}
   await user.idle();const target=saved.get(events[2].id)!;assert.deepEqual((contextThread as {entries:Input[]}).entries.map(input=>input.text),['first','second']);assert.deepEqual(await bot.thread(target,{limit:2}),contextThread);
   const result=await bot.reply(target,'after handler',{replyTo:target.id});assert.equal(result.status,'relay-accepted');await user.idle();assert.equal(received.at(-1)!.text,'after handler');assert.equal(received.at(-1)!.event.kind,14);assert.equal(received.at(-1)!.event.tags.find(tag=>tag[0]==='e')?.[1],target.id);

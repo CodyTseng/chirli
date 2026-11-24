@@ -6,6 +6,7 @@ import type { StorageAdapter, StoragePayload, StoredMessage, StoredOutbox, Messa
 interface Data {
   schema: 1;
   claims?: Record<string, true>;
+  dmActivations?: Record<string, number>;
   messages: Record<string, { account: string; row: StoredMessage }>;
   outbox: Record<string, { account: string; row: StoredOutbox }>;
   evidence: Record<string, KeyEvidence>; declarations: Record<string, StoredDeclaration>;
@@ -36,6 +37,12 @@ export class JsonStorage implements StorageAdapter {
   private write<T>(run: () => T): T {
     this.check(); const previous = this.data; this.data = copy(previous);
     try { const result = run(); if (!this.depth) this.persist(); return result; } catch (error) { this.data = previous; throw error; }
+  }
+  ensureDmActivation(pubkey: string, proposedAt: number): number {
+    const activation = key(pubkey);
+    const previous = this.data.dmActivations?.[activation];
+    if (previous !== undefined) return previous;
+    return this.write(() => (this.data.dmActivations ??= {})[activation] = proposedAt);
   }
   claimInput(account: string, id: string): boolean {
     const claim = key(account,id);

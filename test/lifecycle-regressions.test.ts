@@ -162,12 +162,12 @@ test('a stopped Bot rejects DM, public, and own-copy input without consuming the
   let dm = 0, pub = 0;
   client.handle(() => { dm++; });
   client.handlePublic(async () => { pub++; });
-  const incoming = await wrap(rumor(peer.pubkey,owner.pubkey,'post-stop DM'),peer,owner.pubkey,owner.pubkey,standardEnvelope);
-  const self = await wrap(rumor(owner.pubkey,peer.pubkey,'self copy'),owner,owner.pubkey,owner.pubkey,standardEnvelope);
   const note = await peer.sign({kind:1,content:'/run',tags:[['p',owner.pubkey]],created_at:Math.floor(Date.now()/1000)});
   try {
-    assert.equal(await client.receive(incoming,'live'),false,'not started yet');
+    assert.equal(await client.receive(note,'live',{relay:url}),false,'not started yet');
     await client.start();
+    const incoming = await wrap(rumor(peer.pubkey,owner.pubkey,'post-stop DM'),peer,owner.pubkey,owner.pubkey,standardEnvelope);
+    const self = await wrap(rumor(owner.pubkey,peer.pubkey,'self copy'),owner,owner.pubkey,owner.pubkey,standardEnvelope);
     await client.stop();
     for(const source of ['live','history'] as const) {
       assert.equal(await client.receive(incoming,source),false);
@@ -198,9 +198,9 @@ for (const rejectDecrypt of [false,true]) test(`a canceled async decrypt cannot 
   const client=new Client({...options(transport()),identity});
   client.handle(()=>{calls++;});
   client.onError(()=>{reports++;});
-  const incoming=await wrap(rumor(peer.pubkey,owner.pubkey,'pending decrypt'),peer,owner.pubkey,owner.pubkey,standardEnvelope);
   try {
     await client.start();
+    const incoming=await wrap(rumor(peer.pubkey,owner.pubkey,'pending decrypt'),peer,owner.pubkey,owner.pubkey,standardEnvelope);
     const slow=client.receive(incoming,'live');
     await entered.promise;
     const queued=client.receive(incoming,'history');
@@ -230,9 +230,9 @@ test('stale transport callbacks cannot update metadata or deliver DM before or a
   }});
   const client=new Client({...options(wire),identity:owner});
   client.handle(()=>{calls++;});
-  const dm=await wrap(rumor(peer.pubkey,owner.pubkey,'late transport callback'),peer,owner.pubkey,owner.pubkey,standardEnvelope);
   try{
     await client.start();
+    const dm=await wrap(rumor(peer.pubkey,owner.pubkey,'late transport callback'),peer,owner.pubkey,owner.pubkey,standardEnvelope);
     const before=client.store.declaration(owner.pubkey);
     const newer=await owner.sign({kind:10044,created_at:(before?.created_at??Math.floor(Date.now()/1000))+10,content:'',tags:[['n',owner.pubkey]]});
     await client.stop();

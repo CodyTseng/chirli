@@ -99,7 +99,7 @@ Optional CHIRLI_LEGACY_MAX_DAYS limits retirement age. Current/legacy split secr
 
 ## Runtime and troubleshooting
 
-Startup announces 10044 key metadata, 10002 read/write roles, 10050 DM inboxes, 10063 Blossom servers and registered public command definitions (31992). See the [publication targets](../../docs/RELAYS.md#account-announcements). Historical/self-copy messages do not run handlers. An application-owned timer retries pending announcements and exact pending outbox rows every 30 seconds (CHIRLI_OUTBOX_RETRY_MS, minimum 1000). This is not recipient delivery/read confirmation. SIGINT/SIGTERM drain current work and close storage/signer.
+Startup announces 10044 key metadata, 10002 read/write roles, 10050 DM inboxes, 10063 Blossom servers and registered public command definitions (31992). See the [publication targets](../../docs/RELAYS.md#account-announcements). Recovered DMs created since first activation can run handlers once, just like live DMs. Private messages from before the first activation are ignored. Outgoing self copies do not run handlers. An application-owned timer retries pending announcements and exact pending outbox rows every 30 seconds (CHIRLI_OUTBOX_RETRY_MS, minimum 1000). This is not recipient delivery/read confirmation. SIGINT/SIGTERM drain current work and close storage/signer.
 
 If no reply arrives, check the printed identity, allowlist, sender's 10050 inbox list, reachable relays and signer permissions. Only a public key is logged even when startup fails; secrets/message text are not logged. `node dist/examples/live/commands.js --help` describes usage without loading a config or connecting.
 

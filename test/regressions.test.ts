@@ -56,10 +56,11 @@ test('concurrent duplicate receipts cannot execute a failing rumor twice', async
   } finally { await client.close(); }
 });
 
-test('authenticated resubscription keeps newly revealed old commands historical until EOSE', async () => {
-  const receiver = localIdentity(), sender = localIdentity();
-  const old = await wrap(rumor(sender.pubkey, receiver.pubkey, '/old', Date.now() - 60_000), sender, receiver.pubkey, getPublicKey(receiver.encryptionKey));
-  const live = await wrap(rumor(sender.pubkey, receiver.pubkey, 'new'), sender, receiver.pubkey, getPublicKey(receiver.encryptionKey));
+test('authenticated resubscription ignores pre-activation DMs but admits an eligible DM after EOSE', async t => {
+  const receiver = localIdentity(), sender = localIdentity(), now = Date.now();
+  t.mock.method(Date,'now',()=>now);
+  const old = await wrap(rumor(sender.pubkey, receiver.pubkey, '/old', now - 60_000), sender, receiver.pubkey, getPublicKey(receiver.encryptionKey));
+  const live = await wrap(rumor(sender.pubkey, receiver.pubkey, 'new', now + 1), sender, receiver.pubkey, getPublicKey(receiver.encryptionKey));
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
   await new Promise<void>(resolve => server.once('listening', resolve));
   server.on('connection', ws => {

@@ -6,8 +6,8 @@ import { identityFromSigner } from './signers.js';
 import type { Signer } from './signer.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Store, type Message } from './store.js';
-import {localReadBoundary, WebSocketTransport, type Transport, type WebSocketTransportOptions } from './relay.js';
-import { fileRumor, hexKey, reactionRumor, replyTarget, rumor, timestamp, unwrapAsync, wrap, type DecodedEnvelope, type Identity, type Rumor } from './protocol.js';
+import { WebSocketTransport, type Transport, type WebSocketTransportOptions } from './relay.js';
+import { fileRumor, hexKey, reactionRumor, replyTarget, rumor, timestamp, createdAtOrAfter, unwrapAsync, wrap, type DecodedEnvelope, type Identity, type Rumor } from './protocol.js';
 import { createMessagingProtocol, protocolScope, type MessagingProtocol, type ProtocolMode } from './modes.js';
 import { InboxSubscription, type ReconnectOptions, type RecoveryOptions } from './inbox.js';
 import {
@@ -137,6 +137,7 @@ export class Client {
   private intake: Promise<void> = Promise.resolve();
   private sub?: InboxSubscription;
   private running = false;
+  private dmActivatedAt?: number;
   private closed = false;
   private starting?: Promise<void>;
   private stopping?: Promise<void>;
@@ -320,6 +321,7 @@ export class Client {
       if (publishMetadata) await this.publishMetadata();
       if (!current()) return;
 
+      this.dmActivatedAt = this.coreStore.ensureDmActivation(this.pubkey, Date.now());
       this.sub = new InboxSubscription({
         transport: this.transport,
         store: this.coreStore,
@@ -331,6 +333,7 @@ export class Client {
         },
         reconnect: this.options.reconnect,
         recovery: this.options.recovery,
+        recoveryBaseline: Math.floor(this.dmActivatedAt / 1000),
         localReadWindow:true,
         receive: (event, source, relay) => this.receive(event, source, {
           relay
@@ -370,7 +373,6 @@ export class Client {
     if ([1,1111].includes(event.kind)) {
       return Promise.resolve().then(() => current() ? this.publicInbox?.receive(event,source,metadata?.relay) ?? false : false);
     }
-    const boundary=localReadBoundary(event);
     const snapshot = metadata ? {
       relay: metadata.relay
     } : undefined;
@@ -380,7 +382,7 @@ export class Client {
       try {
         const decoded = await unwrapAsync(event, this.account, this.protocol.envelope, current);
         return current() && decoded
-          ? this.accept(decoded,source==='history'&&boundary!==undefined&&decoded.rumor.created_at>boundary?'live':source,snapshot)
+          ? this.accept(decoded,source,snapshot)
           : false;
       } catch (error) {
         if (!current()) return false;
@@ -395,9 +397,10 @@ export class Client {
 
   private accept(decoded: DecodedEnvelope, source: 'live' | 'history', metadata?: IntakeMetadata): boolean {
     const r = decoded.rumor, own = r.pubkey === this.account.pubkey;
-    // Only verified canonical rumor IDs can claim an external input.
+    // Classification uses only authenticated rumor time; relay/history labels and
+    // intentionally backdated wrappers never decide business eligibility.
+    if (this.dmActivatedAt === undefined || !createdAtOrAfter(r, this.dmActivatedAt)) return false;
     if (!own && !this.coreStore.claimInput(r.id)) return false;
-    if (!own && source !== 'live') return true; // Passive recovery: ID only.
     const replyTo = replyTarget(r);
     const message: Message = {
       id: r.id,

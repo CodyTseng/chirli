@@ -96,9 +96,9 @@ bot.onError((error, message) => {
 });
 ```
 
-Handlers run serially within a conversation and concurrently across conversations. An authenticated live input is claimed durably by its canonical ID before middleware. A failure is reported but does not cause a second attempt, even after reconnect or restart. Historical incoming DMs claim IDs without storing their bodies or running handlers. Outgoing self copies can still populate history. [Event processing flow](docs/API.md#event-processing-flow)
+Handlers run serially within a conversation and concurrently across conversations. An eligible authenticated input is claimed durably by its canonical ID before middleware. A failure is reported but does not cause a second attempt, even after reconnect or restart. Live and recovered incoming DMs created since first activation follow the same processing path. Eligible outgoing self copies can still populate history. [Event processing flow](docs/API.md#event-processing-flow)
 
-`observe(observer)` monitors new live DMs admitted to local conversation history; it does not control processing. Register handlers before `start()`.
+`observe(observer)` monitors newly admitted DMs saved to local conversation history; it does not control processing. Register handlers before `start()`.
 
 To reference the current DM in a reply, pass `ctx.input.id` as `replyTo`:
 
@@ -201,7 +201,7 @@ Close Bot before its injected resources. Call stop/close outside message handler
 
 Default NIP-17 uses account-key encryption. Explicit `mode: 'nip4e'` generates or restores separate messaging keys for extension peers. Both modes accept supported standard NIP-17 and NIP-4E messages.
 
-Relay connections are pooled and reconnect independently. Recovery uses bounded overlap paging. Incoming IDs found after downtime do not run commands or add message bodies to local history; outgoing self copies can still be recovered.
+Relay connections are pooled and reconnect independently. Recovery uses bounded overlap paging. On first startup the Bot saves its DM activation time. Older DMs are ignored; new DMs found after downtime enter the same middleware and handlers as live DMs, at most once.
 
 See [key rotation](docs/KEYS.md), [interoperability](docs/INTEROPERABILITY.md), [relay configuration](docs/RELAYS.md) and [recovery](docs/RECOVERY.md) for detailed behavior and limits.
 
@@ -247,7 +247,7 @@ bot.command({ command: 'ping', scopes: ['kind:14'] }, async ctx => { await ctx.r
 await bot.start(); // Command declarations remain automatic.
 ```
 
-`allowlist` snapshots the supplied lowercase hex identity keys. Register it first to block other live middleware and handlers for nonmembers. `allowlist([])` blocks every external live sender. Returning early does not undo the prior ID claim. Passive recovery does not run middleware or retain incoming message bodies. [Sender authorization](docs/ACCESS.md)
+`allowlist` snapshots the supplied lowercase hex identity keys. Register it first to block downstream middleware and handlers for nonmembers. `allowlist([])` blocks every external sender from routing, including eligible DMs discovered during recovery. Returning early does not undo the prior ID claim. [Sender authorization](docs/ACCESS.md)
 
 `requestTiming({onTiming})` is optional ordinary middleware. Its observer receives only `{durationMs,outcome:'success'|'failure'}` for the downstream processing chain. It never reads message context or error details, does not log by default and cannot let observer failures change processing. It excludes receipt/decryption, queue waiting and session commit after the chain; no command route name is inferred from text. See [API](docs/API.md).
 

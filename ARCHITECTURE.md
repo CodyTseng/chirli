@@ -37,7 +37,7 @@ Stop cancels subscription/reconnect demand and drains intake, handlers and SDK w
 
 See the [event processing flow](docs/API.md#event-processing-flow) for the complete path from authentication to outgoing publication.
 
-Giftwrap and seal signatures, rumor hash/author, times and one-to-one routing are verified before persistence. Internal SQLite atomically claims the canonical ID in the account/mode scope before any business middleware. Multiple giftwraps for the same rumor do not create multiple attempts.
+Giftwrap and seal signatures, rumor hash/author, times and one-to-one routing are verified before persistence. After verification, internal SQLite checks the persisted first DM activation time per identity and database against the inner rumor timestamp; both live delivery and catch-up use this guard. Eligible incoming DMs claim their canonical ID in the account/mode scope before any business middleware. Multiple giftwraps for the same rumor do not create multiple attempts.
 
 - An unseen live claim may enter the serial conversation queue; different conversations can proceed concurrently.
 - A middleware stop, failure or crash does not reopen the claim. The SDK does not store an incoming callback payload to replay.

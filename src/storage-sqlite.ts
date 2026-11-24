@@ -15,6 +15,7 @@ export class SQLiteStorage implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS message_list ON messages(account,time ASC,id ASC);
       CREATE INDEX IF NOT EXISTS message_state ON messages(account,state,time ASC,id ASC);
       CREATE INDEX IF NOT EXISTS message_unfinished ON messages(account,time ASC,id DESC) WHERE state IN ('pending','processing','failed');
+      CREATE TABLE IF NOT EXISTS dm_activations(pubkey TEXT PRIMARY KEY, activated_at INTEGER NOT NULL) WITHOUT ROWID;
       CREATE TABLE IF NOT EXISTS input_claims(account TEXT,id TEXT,PRIMARY KEY(account,id)) WITHOUT ROWID;
       CREATE TABLE IF NOT EXISTS outbox(account TEXT,id TEXT,payload TEXT,state TEXT,PRIMARY KEY(account,id));
       CREATE INDEX IF NOT EXISTS outbox_state ON outbox(account,state,id);
@@ -40,6 +41,11 @@ export class SQLiteStorage implements StorageAdapter {
     if (value.collection !== 'outbox') throw new TypeError('Invalid storage collection');
     return this.db.prepare('INSERT OR IGNORE INTO outbox VALUES(?,?,?,?)')
       .run(account, row.id, row.payload, row.state).changes === 1;
+  }
+
+  ensureDmActivation(pubkey: string, proposedAt: number): number {
+    this.db.prepare('INSERT OR IGNORE INTO dm_activations(pubkey, activated_at) VALUES(?,?)').run(pubkey, proposedAt);
+    return (this.db.prepare('SELECT activated_at FROM dm_activations WHERE pubkey=?').get(pubkey) as { activated_at: number }).activated_at;
   }
 
   claimInput(account: string, id: string): boolean {

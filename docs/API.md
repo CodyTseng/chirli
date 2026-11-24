@@ -79,9 +79,9 @@ Await application-owned sends and stop/await application timers before closing B
 
 ## Event processing flow
 
-1. **Verify.** For a DM, unwrap the envelope and verify its signatures, canonical rumor ID, sender and recipient. For a public note or comment, verify the signed event and check its configured source relay, structure, command target and scope. Invalid or ineligible input stops here; it claims nothing and runs no middleware, command or fallback.
-2. **Claim.** Atomically insert the canonical ID in the account/mode's SQLite store: the inner rumor ID for a DM, or the signed event ID for public input. A duplicate stops before middleware. Eligible incoming history also stops here after claiming its ID, without saving its body; a later live copy does not run. Outgoing self copies can populate private history without going through inbound middleware.
-3. **Run middleware once.** An eligible live input enters its conversation or public-root queue. Middleware runs in registration order; put `bot.use(allowlist(pubkeys))` first to restrict everything downstream. Returning without `next()` stops routing. If the chain throws, the error is reported through the applicable error handler. In either case the ID stays claimed; reconnect and restart do not reopen it.
+1. **Verify.** For a DM, unwrap the envelope and verify its signatures, canonical rumor ID, sender and recipient, then check its authenticated timestamp against first activation. For a public note or comment, verify the signed event and check its configured source relay, structure, command target and scope. Invalid or ineligible input stops here; it claims nothing and runs no middleware, command or fallback.
+2. **Claim.** Atomically insert the canonical ID in the account/mode's SQLite store: the inner rumor ID for a DM, or the signed event ID for public input. A duplicate stops before middleware. Eligible public history still stops after claiming its ID; a later live copy does not run. Incoming DM recovery and live delivery use the same admission rule. Eligible outgoing self copies can populate private history without middleware.
+3. **Run middleware once.** An eligible input enters its conversation or public-root queue. Middleware runs in registration order; put `bot.use(allowlist(pubkeys))` first to restrict everything downstream. Returning without `next()` stops routing. If the chain throws, the error is reported through the applicable error handler. In either case the ID stays claimed; reconnect and restart do not reopen it.
 4. **Route.** When middleware reaches routing, a DM is saved to private conversation history and can notify receipt observers. Public input has no stored body or conversation history. The SDK invokes the matching scoped command (including argument checks and any command-specific authorization), or the DM fallback if no command matches. The claim is already durable: a crash can leave a callback partially executed or prevent it from running at all.
 5. **Publish outgoing events separately.** Sends, replies and reactions are stored before publication. Startup, reconnect or `flushOutbox()` can retry that exact signed event, not the incoming callback. Relay acceptance does not confirm delivery or reading.
 
@@ -99,7 +99,7 @@ const unobserve = bot.observe(message => {
 
 `handle()` registers the handler for messages with no matching command. It receives the same context as command handlers and can be registered before or after commands. Each Bot has one fallback. Call the returned unsubscribe function before registering a replacement.
 
-`observe()` subscribes to new live DMs retained in local conversation history, using detached copies. It runs once routing is reached and does not control command matching or completion.
+`observe()` subscribes to newly admitted DMs retained in local conversation history, using detached copies. It runs once routing is reached and does not control command matching or completion.
 
 Callbacks are serial within a conversation or public root; different queues can proceed concurrently. See the [event processing flow](#event-processing-flow) for the claim, history and outgoing retry boundaries.
 
@@ -206,7 +206,7 @@ History is synchronous local storage access: newest timestamp first, then ascend
 | `await getSession(peer)` | Read the saved session from the configured backend |
 | `await setSession(peer, value)` | Replace the saved snapshot in the configured backend |
 
-Message list limits are 1..100, default 30. These APIs describe retained private history, not the internal set of claimed IDs. A short-circuited or historical incoming message may have a durable ID claim without a history record. Status values never trigger retries.
+Message list limits are 1..100, default 30. These APIs describe retained private history, not the internal set of claimed IDs. A DM short-circuited by middleware may have a durable ID claim without a history record. Status values never trigger retries.
 
 Arbitrary external effects and session saves are not atomic; applications own idempotency.
 
@@ -249,7 +249,7 @@ Command discovery is read-only and returns a bounded relay snapshot with `comple
 
 ## Advanced integrations
 
-`await receive(event, 'history' | 'live', {relay}?)` is the verified custom-intake boundary. It returns `true` for a newly claimed eligible DM or public input, or a newly stored own DM copy. An ID claim does not imply that a handler ran or that a payload was stored. Local and remote signers use the same asynchronous path. Classify source truthfully: old history presented as live can execute commands.
+`await receive(event, 'history' | 'live', {relay}?)` is the verified custom-intake boundary. It returns `true` for a newly claimed eligible DM or public input, or a newly stored own DM copy. An ID claim does not imply that a handler ran or that a payload was stored. Local and remote signers use the same asynchronous path. For DMs, the transport source is diagnostic: the authenticated rumor timestamp and first activation determine eligibility. Classify public source truthfully: old public history presented as live can execute commands.
 
 Custom `Transport` supplies `query`, `subscribe`, `publish` and `close`. Custom subscription readiness retains its existing contract. Direct built-in Transport subscriptions and bounded queries require actual EOSE; SDK-owned long-lived inboxes alone permit the local read-window fallback described in the relay reference. Physical socket health is independent of either completion signal. The built-in transport uses nostr-tools for pooled physical connections, REQ, EOSE timers, keepalive and ACK tracking, with bounded connect/EOSE/ACK/AUTH operations; `InboxSubscription` owns reconnect and recovery. See [relays](RELAYS.md) and [recovery](RECOVERY.md).
 
@@ -263,7 +263,7 @@ Command removal is expressed by the next startup registry, not a runtime method.
 
 ## Optional official components
 
-`allowlist(pubkeys: readonly string[])` returns ordinary middleware. Register `bot.use(allowlist(pubkeys))` before middleware whose effects need protection. It validates and snapshots lowercase hex account keys, checks the verified input author, and calls `next()` only for listed senders. `allowlist([])` blocks every external live input. The ID is already claimed; the middleware does not run on historical frames or outgoing self copies. [Sender authorization](ACCESS.md)
+`allowlist(pubkeys: readonly string[])` returns ordinary middleware. Register `bot.use(allowlist(pubkeys))` before middleware whose effects need protection. It validates and snapshots lowercase hex account keys, checks the verified input author, and calls `next()` only for listed senders. `allowlist([])` blocks every external input from routing. The ID is already claimed; the middleware does not run on public history or outgoing self copies. [Sender authorization](ACCESS.md)
 
 `requestTiming({onTiming})` returns ordinary `bot.use()` middleware. Register it before the processing middleware you want to measure. `RequestTiming` is a frozen object containing only readonly `durationMs:number` (monotonic elapsed milliseconds) and `outcome:'success'|'failure'`. `RequestTimingObserver` may return void or a Promise; synchronous exceptions and rejected observer promises are isolated, and the observer is not awaited. Successful processing stays successful, original handler errors stay the same errors and do not trigger a retry. No context, body, sender, event ID, route inferred from text, credentials or raw error is passed to telemetry. There is no default logger.
 

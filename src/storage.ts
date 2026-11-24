@@ -49,6 +49,8 @@ export interface StorageAdapter {
   insert(account: string, value: StorageRecord): boolean;
   /** Claim a canonical input ID within the account scope before application dispatch. */
   claimInput(account: string, id: string): boolean;
+  /** Persist the first DM activation for an account identity, independent of mode. */
+  ensureDmActivation(pubkey: string, proposedAt: number): number;
   queryMessages(account: string, query?: MessageQuery): StoredMessage[];
   queryOutbox(account: string, query?: OutboxQuery): StoredOutbox[];
   updateMessageState(account: string, id: string, state: MessageState): void;

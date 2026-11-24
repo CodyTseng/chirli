@@ -31,23 +31,24 @@ test('Bot and both Client entry points reject removed authorization options',asy
   }
  } finally {await signer.close();}
 });
-test('middleware sees verified live Context; own copies and passive history bypass middleware',async()=>{
- const identity=localNip17Identity(),peer=localNip17Identity(),observed:string[]=[];
+test('middleware sees both live and recovered verified DM Context; own copies bypass middleware',async()=>{
+ const identity=localNip17Identity(),peer=localNip17Identity(),observed:string[][]=[];
  const client=new Client({identity,relays:urls,transport,database:':memory:'}),bot=new BotHandlers(client);
- bot.use(ctx=>{observed.push(ctx.sender);assert.equal(ctx.input.text,'blocked');});
+ bot.use(ctx=>{observed.push([ctx.sender,ctx.input.text]);});
  try{
   await bot.start();
   const live=await wrap(rumor(peer.pubkey,identity.pubkey,'blocked'),peer,identity.pubkey,identity.pubkey,standardEnvelope);
   assert.equal(await client.receive(live,'live'),true);
   await client.idle();
-  assert.deepEqual(observed,[peer.pubkey]);
+  assert.deepEqual(observed,[[peer.pubkey,'blocked']]);
   assert.equal(client.history(peer.pubkey).messages.length,0);
-  const passive=await wrap(rumor(peer.pubkey,identity.pubkey,'passive'),peer,identity.pubkey,identity.pubkey,standardEnvelope);
-  assert.equal(await client.receive(passive,'history'),true);
+  const recovered=await wrap(rumor(peer.pubkey,identity.pubkey,'recovered'),peer,identity.pubkey,identity.pubkey,standardEnvelope);
+  assert.equal(await client.receive(recovered,'history'),true);
+  assert.equal(await client.receive(recovered,'live'),false);
   const self=await wrap(rumor(identity.pubkey,peer.pubkey,'self copy'),identity,identity.pubkey,identity.pubkey,standardEnvelope);
   assert.equal(await client.receive(self,'history'),true);
   await client.idle();
-  assert.deepEqual(observed,[peer.pubkey]);
+  assert.deepEqual(observed,[[peer.pubkey,'blocked'],[peer.pubkey,'recovered']]);
   assert.deepEqual(client.history(peer.pubkey).messages.map(message=>message.direction),['outgoing']);
  }finally{bot.dispose();await client.close();}
 });

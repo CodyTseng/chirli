@@ -21,14 +21,18 @@ test('WebSocket E2E: discovery, self copy, command consumption, history, rumor d
   let bob = new Client({mode:'nip4e', identity:b, relays:[relay.url], storageKey:key, database:path });
   try {
     await alice.announce(); await bob.announce();
-    // Passive receipts claim IDs but do not retain payloads or execute commands.
-    const old = await alice.send(b.pubkey, '/ping old');
+    // A signed pre-activation receipt must not claim its ID, retain payload, or execute.
+    const old = rumor(a.pubkey,b.pubkey,'/ping old',Date.now()-10000);
+    const oldWrap = await wrap(old,a,b.pubkey,getPublicKey(b.encryptionKey));
+    const setup = new WebSocketTransport();
+    try { await setup.publish([relay.url],oldWrap); } finally { setup.close(); }
     const bot = new Bot<{count:number}>(bob);
     let commands=0, texts=0;
     bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { commands++; ctx.session.setItem('count', (await ctx.session.getItem('count') ?? 0) + 1); await ctx.reply('pong'); });
     bot.handle(async () => { texts++; });
     await alice.start(); await bot.start(); await bob.idle();
     assert.equal(commands,0);assert.equal(bob.getMessage(old.id),undefined);
+    assert.equal(await bob.receive(oldWrap,'live'),false);
     const sent = await alice.send(b.pubkey, '/ping'); assert.equal(sent.status,'relay-accepted');
     await until(() => commands===1); await bob.idle(); assert.equal(texts,0);
     assert.equal(bob.store.session<{count:number}>(a.pubkey)?.count,1);
@@ -61,8 +65,9 @@ test('strict envelope validation, old keys and anti-rollback evidence', async ()
   assert.equal(unwrap(forged,b),undefined);
   const relay=await testRelay(), client=new Client({mode:'nip4e',identity:b,relays:[relay.url],database:':memory:',storageKey:generateSecretKey()});
   try {
-    await client.start();await client.receive(e,'live');await client.idle();
-    const old=await announcement({...a,encryptionKey:generateSecretKey()},r.created_at-10);
+    await client.start();const current=rumor(a.pubkey,b.pubkey,'eligible seal evidence');
+    assert.equal(await client.receive(await wrap(current,a,b.pubkey,getPublicKey(b.encryptionKey)),'live'),true);await client.idle();
+    const old=await announcement({...a,encryptionKey:generateSecretKey()},current.created_at-10);
     const transport=new WebSocketTransport();await transport.publish([relay.url],old);await transport.publish([relay.url],await a.sign({kind:10050,created_at:10,tags:[['relay',relay.url]],content:''}));transport.close();
     assert.equal((await client.refreshPeer(a.pubkey)).encryptionPubkey,getPublicKey(a.encryptionKey));
   } finally {await client.close();await relay.close();}

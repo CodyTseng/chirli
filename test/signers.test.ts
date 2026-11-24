@@ -117,7 +117,7 @@ test('bunker switches to a relay without EOSE and releases both relay connection
   }
 });
 
-test('pure remote decryption failures leave checkpoints unchanged and recover as ID-only history', async t => {
+test('pure remote decryption failures leave checkpoints unchanged and recover eligible history once', async t => {
   const remote = await mockBunker();
   let signer: ReturnType<typeof bunkerSigner> | undefined;
   let client: Client | undefined;
@@ -140,20 +140,26 @@ test('pure remote decryption failures leave checkpoints unchanged and recover as
 
   await client.announce();
   await user.announce();
-  const sent = await user.send(identity.pubkey, '/old');
+  await client.start();
+  await client.stop();
+  const checkpoint = client.store.checkpoint(remote.relay);
+  const sent = await user.send(identity.pubkey, '/missed after activation');
   const original = user.getMessage(sent.id)!.rumor;
   const requestsBeforeRecovery = remote.methods.length;
   remote.reject('nip44_decrypt');
   await client.start();
   assert.ok(remote.methods.slice(requestsBeforeRecovery).includes('nip44_decrypt'));
-  assert.equal(client.store.checkpoint(remote.relay), undefined);
+  assert.equal(client.store.checkpoint(remote.relay), checkpoint);
 
   remote.reject();
   const [result] = await client.syncHistory();
   assert.equal(result.status, 'window-complete');
-  assert.equal(calls, 0);
-  assert.deepEqual(client.history(peer.pubkey).messages, []);
+  await client.idle();
+  assert.equal(calls, 1);
+  assert.deepEqual(client.history(peer.pubkey).messages.map(message => [message.id,message.source]), [[sent.id,'history']]);
   assert.equal(await client.receive(await wrap(original,peer,identity.pubkey,identity.pubkey,standardEnvelope),'live'),false);
+  await client.idle();
+  assert.equal(calls, 1);
 });
 
 test('bunkerSigner rejects invalid bunker connection URIs', () => {

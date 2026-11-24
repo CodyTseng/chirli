@@ -163,10 +163,11 @@ for (const injected of [false, true]) {
       transport: relay.transport(), relays: ['ws://reopen.invalid'], keySync: false, recovery: false });
     let client = await open(), handled = 0;
     try {
+      client.handle(() => { handled++; });
+      await client.start();
       const draft = rumor(sender.pubkey, client.pubkey, 'once');
       const event = await wrap(draft, sender, client.pubkey, client.pubkey, standardEnvelope);
-      client.handle(() => { handled++; });
-      await client.start(); await client.receive(event, 'live'); await client.idle();
+      await client.receive(event, 'live'); await client.idle();
       assert.equal(handled, 1);
       await client.close();
       if (messages) {

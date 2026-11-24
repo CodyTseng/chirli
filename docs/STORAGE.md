@@ -1,6 +1,6 @@
 # Message storage
 
-Retained private messages and their diagnostic states belong to `MessageStorage`. Atomic inbound ID claims, outbox, keys, peer evidence, declarations, sessions and relay checkpoints stay in internal SQLite. Internal persistence accepts only a `database` path; its backend cannot be replaced.
+Retained private messages and their diagnostic states belong to `MessageStorage`. The first DM activation timestamp, atomic inbound ID claims, outbox, keys, peer evidence, declarations, sessions and relay checkpoints stay in internal SQLite. Internal persistence accepts only a `database` path; its backend cannot be replaced.
 
 Business conversation state uses `ctx.session`. A Bot can supply a `sessionStore` for that state. Internal sessions used by the framework stay in SQLite. See the [session guide and custom store example](SESSIONS.md#use-a-custom-session-store).
 
@@ -48,7 +48,7 @@ Each entry contains `id`, `conversation`, millisecond `timestamp`, opaque `paylo
 - Implement filtering, ordering, cursors and limits in the database. Queries by exact ID, conversation or diagnostic state should use indexes.
 - All methods are synchronous and durable on return. Promise-returning methods are unsupported.
 
-History, `getMessage`, `listMessages` and `getMessageState` use this backend. A claimed ID need not have a history entry. An eligible live DM is saved only when the middleware chain reaches routing. A stopped or historical incoming message is never written here solely because its ID was claimed. No inbound claim, outbox, keyring or metadata interface is required from custom implementations.
+History, `getMessage`, `listMessages` and `getMessageState` use this backend. A claimed ID need not have a history entry. An eligible incoming DM, including one recovered from a relay, is saved only when middleware reaches routing. Pre-activation DMs are ignored and short-circuited DMs retain only their ID claim. No inbound claim, outbox, keyring or metadata interface is required from custom implementations.
 
 ## Failures and restart
 

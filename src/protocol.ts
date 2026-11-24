@@ -59,8 +59,19 @@ export function validTimestamp(seconds: number): boolean {
 }
 
 export function timestamp(r: Pick<Rumor, 'tags' | 'created_at'>): number {
+  return r.created_at * 1000 + (rumorMilliseconds(r) ?? 0);
+}
+
+function rumorMilliseconds(r: Pick<Rumor, 'tags'>): number | undefined {
   const ms = r.tags.find(t => t[0] === 'ms')?.[1];
-  return r.created_at * 1000 + (ms && /^\d{1,3}$/.test(ms) && +ms < 1000 ? +ms : 0);
+  return ms && /^\d{1,3}$/.test(ms) ? +ms : undefined;
+}
+
+export function createdAtOrAfter(r: Pick<Rumor,'tags'|'created_at'>, activatedAt: number): boolean {
+  const milliseconds = rumorMilliseconds(r);
+  return milliseconds === undefined
+    ? r.created_at >= Math.floor(activatedAt / 1000)
+    : r.created_at * 1000 + milliseconds >= activatedAt;
 }
 
 export function replyTarget(rumor: Pick<Rumor, 'tags'>): string | undefined {

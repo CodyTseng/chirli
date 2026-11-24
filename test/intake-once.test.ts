@@ -233,7 +233,7 @@ for (const kind of [1, 1111] as const) {
   });
 }
 
-test('first seeing an eligible input as relay history does not turn replay into a live handler call', async () => {
+test('DM history after activation dispatches once, while public relay history remains passive', async () => {
   const f = await fixture();
   const bot = f.make();
   let calls = 0;
@@ -255,8 +255,9 @@ test('first seeing an eligible input as relay history does not turn replay into 
       assert.equal(await bot.receive(live, 'live', { relay: relays[1] }), false);
     }
     await bot.idle();
-    assert.equal(calls, 0);
-    assert.equal(bot.getMessage(input.id), undefined);
+    assert.equal(calls, 1);
+    assert.equal(bot.getMessage(input.id)?.source, 'history');
+    assert.equal(bot.getMessage(note.id), undefined);
   } finally {
     await bot.close();
     await f.dispose();

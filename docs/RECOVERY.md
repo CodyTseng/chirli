@@ -1,6 +1,6 @@
 # Reconnect and history recovery
 
-The Bot manages one inbox subscription per DM relay. Each reconnects independently and can scan for missed IDs and outgoing self copies. Recovery does not replay external messages or store their bodies as conversation history.
+The Bot manages one inbox subscription per DM relay. Each reconnects independently and can scan for missed DMs and outgoing self copies. Eligible incoming DMs recovered from a relay use the same middleware and handlers as live delivery, without retrying a previously claimed input.
 
 ## Defaults and configuration
 
@@ -25,13 +25,15 @@ Set `reconnect: false` to disable automatic reconnect. Set `recovery: false` to 
 
 ## What a recovery pass does
 
-The first pass starts with the configured overlap window. Later passes start at that relay's saved checkpoint minus the overlap. Each pass fixes its upper bound before querying. Checkpoints are scoped to the account, mode and relay.
+When a relay has no checkpoint, its next scan starts at the Bot’s persisted first activation minus the configured overlap. Later passes start at that relay’s saved checkpoint minus the overlap. Scan bounds filter the outer giftwrap’s timestamp, not the inner DM timestamp. Each pass fixes its upper bound before querying; only a complete pass advances the checkpoint. Checkpoints are scoped to the account, mode and relay.
 
 Pagination includes the oldest returned second in the next request. If a full page cannot move past that boundary, the pass reports `boundary-overflow`. Query failures, page limits and boundary overflow leave the checkpoint unchanged. A retry can read earlier pages again. Deduplication uses the decrypted message ID.
 
 ### Live messages and recovered history
 
-Frames before real EOSE normally remain historical, as do all bounded reconnect catch-up and recovery query results. Eligible historical incoming IDs are claimed without storing the message body or running handlers. Historical outgoing self copies can populate local history. Long-lived built-in inbox subscriptions alone can complete locally when a relay omits EOSE; after that boundary, only strictly newer authenticated public-event or decrypted rumor timestamps can enter live processing. See the degraded clock/order guarantees in [relays](RELAYS.md#relays-that-omit-eose). If a historical copy claims the ID before a live duplicate arrives, the duplicate cannot run middleware. A command sent during downtime therefore may neither run nor appear in conversation history.
+The SDK saves the first DM activation time per bot public key and database before opening its DM inbox. It is reused on subsequent starts. After verification, the SDK discards both incoming DMs and outgoing self copies whose inner rumor timestamp is older than that time. A valid `ms` tag gives millisecond precision; when absent or unusable, a rumor in the same whole second as activation is eligible. Sender clocks can differ.
+
+Once eligible, an incoming DM goes through the same ID claim, middleware and routing whether it arrived live, before EOSE, or in a catch-up query. Failed or denied inputs stay claimed. A later duplicate never reruns the handler. Eligible outgoing self copies can populate local history without middleware. Public command subscriptions keep their separate live/history rules.
 
 ## Trigger and inspect recovery
 

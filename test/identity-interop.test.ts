@@ -25,6 +25,9 @@ test('PsstPsst identity-recipient fixture decrypts, and the reply carries the n 
  const identity=localNip17Identity(Buffer.from(fixture.recipient.identitySecret,'hex'));
  const client=new Client({mode:'nip17',identity,relays:['ws://unused.invalid'],database:':memory:',storageKey:generateSecretKey(),transport:simulated(()=>[]).transport});
  try{
+  // An established bot can recover this captured wire fixture without rewriting
+  // any of its authenticated fields to match the present wall clock.
+  client.store.ensureDmActivation(identity.pubkey,fixture.rumor.created_at*1000);
   await client.start();assert.equal(await client.receive(fixture.giftWrap,'live'),true);await client.idle();assert.equal(client.history(fixture.sender.pubkey).messages[0].id,fixture.rumor.id);
   assert.equal(client.store.evidence(fixture.sender.pubkey)?.key,getPublicKey(Buffer.from(fixture.sender.encryptionSecret,'hex')));
   const r=rumor(identity.pubkey,fixture.sender.pubkey,'identity-key reply');
@@ -137,12 +140,15 @@ test('forged declarations cannot select keys and pending outbox cannot override 
 });
 test('peer seal and declaration key evidence preserve rotation order without implicit identity fallback',async()=>{
  const identity=localNip17Identity(),peer=localIdentity(),newKey=generateSecretKey(),relay='ws://metadata.invalid';
- const claim=await peer.sign({kind:10044,created_at:20,tags:[['n',getPublicKey(newKey)]],content:''}),dm=await list(peer,relay),fixture=simulated(()=>[claim,dm]);
+ const claim=await peer.sign({kind:10044,created_at:Math.floor(Date.now()/1000)+10,tags:[['n',getPublicKey(newKey)]],content:''}),dm=await list(peer,relay),fixture=simulated(()=>[claim,dm]);
  const client=new Client({mode:'nip17',identity,relays:[relay],transport:fixture.transport,database:':memory:',storageKey:generateSecretKey()});
  try{
   await client.start();assert.equal((await client.refreshPeer(peer.pubkey)).encryptionPubkey,getPublicKey(newKey));
-  await client.receive(await wrap(rumor(peer.pubkey,identity.pubkey,'older history',15000),peer,identity.pubkey,identity.pubkey),'history');assert.equal((await client.refreshPeer(peer.pubkey)).encryptionPubkey,getPublicKey(newKey));
-  await client.receive(await wrap(rumor(peer.pubkey,identity.pubkey,'newer seal',30000),peer,identity.pubkey,identity.pubkey),'live');await client.idle();assert.equal((await client.refreshPeer(peer.pubkey)).encryptionPubkey,getPublicKey(peer.encryptionKey));
+  const older=rumor(peer.pubkey,identity.pubkey,'older history');
+  assert.ok(older.created_at<claim.created_at);
+  assert.equal(await client.receive(await wrap(older,peer,identity.pubkey,identity.pubkey),'history'),true);await client.idle();assert.equal((await client.refreshPeer(peer.pubkey)).encryptionPubkey,getPublicKey(newKey));
+  const newer=rumor(peer.pubkey,identity.pubkey,'newer seal',(claim.created_at+1)*1000);
+  assert.equal(await client.receive(await wrap(newer,peer,identity.pubkey,identity.pubkey),'live'),true);await client.idle();assert.equal((await client.refreshPeer(peer.pubkey)).encryptionPubkey,getPublicKey(peer.encryptionKey));
  }finally{await client.close();}
 });
 

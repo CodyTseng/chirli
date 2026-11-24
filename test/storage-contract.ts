@@ -13,6 +13,9 @@ export function storageContract(name:string,factory:()=>Promise<{open():StorageA
   const make=(text:string,time:number)=>{const r=rumor(peer.pubkey,identity.pubkey,text,time);return{id:r.id,sender:peer.pubkey,conversation:peer.pubkey,text,timestamp:time,source:'live' as const,direction:'incoming' as const,rumor:r};};
   const first=make('private message contract',1000),second=make('second',2000),third=make('third',2000);
   try{
+   assert.equal(store.ensureDmActivation(identity.pubkey,1234),1234);
+   assert.equal(other.ensureDmActivation(identity.pubkey,5678),1234,'activation uses identity, not mode');
+   assert.equal(other.ensureDmActivation(peer.pubkey,5678),5678,'other identities have their own startup floor');
    assert.equal(store.claimInput(first.id),true);
    assert.equal(store.claimInput(first.id),false);
    assert.equal(other.claimInput(first.id),true,'input claims are mode/account scoped');
@@ -36,6 +39,7 @@ export function storageContract(name:string,factory:()=>Promise<{open():StorageA
    raw[0].state='done';assert.equal(store.pending().length,2,'reads must be detached snapshots');
    const cipher=adapter.getKeyring(identity.pubkey)!;adapter.setKeyring(peer.pubkey,cipher);assert.throws(()=>store.keyring(peer.pubkey),'keyring identity scope binding');
    store.close();other.close();adapter.close();adapter=fixture.open();store=new Store(adapter,key,`nip17:${identity.pubkey}`);other=new Store(adapter,key,identity.pubkey);
+   assert.equal(store.ensureDmActivation(identity.pubkey,9000),1234,'first activation survives reopen');
    assert.equal(store.claimInput(first.id),false,'account-scoped input claim survives reopen');
    assert.equal(store.history(peer.pubkey).messages.length,3);assert.equal(store.messageState(second.id),'failed');assert.equal(store.session<{secret:string}>(peer.pubkey)?.secret,'private session contract');assert.equal(store.outbox()[0].id,'outbox');assert.equal(store.keyring<{secret:string}>(identity.pubkey)?.secret,'private keyring contract');
    const wrong=new Store(adapter,generateSecretKey(),store.account);assert.throws(()=>wrong.session(peer.pubkey));wrong.close();
