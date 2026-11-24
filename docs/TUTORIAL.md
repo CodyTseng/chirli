@@ -77,7 +77,7 @@ Rebuild and restart, then send `/roll 6`: the reply is `Rolled N on a 6-sided di
 
 Only command handlers have typed ctx.args; middleware uses the ordinary context before validation and sees no args after next returns. Use `.meta({nipcdType:'text'})` for a final free-text string; plain strings are words. See [schema support](API.md#zod-command-arguments) for optional/address fields and unsupported transforms. To run these valid/invalid examples without any external connection, build and run `npm run example:commands`; its /roll handler uses the same schema and middleware.
 
-For commands with args-dependent authorize, invalid input is silently terminated: an invalid request cannot authorize a usage reply. A validator exception before authorization bypasses reply-capable middleware/catch observers and reaches operational onError plus failed/retry state unchanged. Other business errors keep the normal retry contract.
+For commands with args-dependent authorize, invalid input is silently terminated: an invalid request cannot authorize a usage reply. A validator exception before authorization bypasses reply-capable middleware/catch observers and reaches operational `onError` without a second processing attempt.
 
 ## 3. Persist conversation state
 
@@ -109,7 +109,7 @@ bot.handle(async ctx => {
 });
 ```
 
-Use `bot.use()` for shared middleware before routing. Middleware can await `next()` to continue to the command or text handler. Use `observe()` for independent receipt monitoring. Observers do not determine processing success.
+Use `bot.use()` for shared middleware before routing. Use `observe()` for independent receipt monitoring. Observers do not determine processing success.
 
 ```ts
 bot.catch((error, ctx) => {
@@ -117,15 +117,9 @@ bot.catch((error, ctx) => {
 });
 ```
 
-`Bot.catch()` observes session, middleware and business errors. Business errors remain failed/retryable even if the observer throws. Framework InvalidArgsError is different: it is terminal by default, never reaches the business handler or plain fallback, and is silent unless middleware or bot.catch explicitly handles it.
+`Bot.catch()` observes session, middleware and business errors. No callback is retried by the SDK; the input ID stays claimed. Framework `InvalidArgsError` never reaches the business handler or plain fallback and is silent unless middleware or `bot.catch` handles it. For business work that must be retried, persist your own job using the input ID. For an already queued outgoing message, use `bot.flushOutbox()` to retry delivery of the same signed event.
 
-Inspect `bot.getMessageState(id)` or `bot.listMessages({ state: 'failed' })`. Retry from application management code, outside message handlers:
-
-```ts
-await bot.retryInbox({ ids: [failedMessageId] });
-```
-
-Handlers are serial per conversation. Calling `idle()`, `retryInbox()`, `stop()` or `close()` from a handler would wait on itself and is rejected. Use `requestStop()` to request shutdown and drain from outside the handler.
+See the [event processing flow](API.md#event-processing-flow) for what stops before routing and what can be retried. Handlers are serial per conversation. Calling `idle()`, `stop()` or `close()` from a handler would wait on itself and is rejected. Use `requestStop()` to request shutdown and drain from outside the handler.
 
 ## 5. Understand public command synchronization
 
@@ -133,7 +127,7 @@ All commands are public on configured write relays. Their definitions are synchr
 
 - To remove a command, omit it from the complete registry and restart with the same account/relays; startup publishes the withdrawal. Runtime additions remain supported.
 - Declare a typed argument schema in `command()` for typed arguments. Registration accepts an `authorize` callback.
-- Set `inboundPolicy: allowlist(pubkeys)` to authorize senders before persistence and handlers.
+- Register `bot.use(allowlist(pubkeys))` first to authorize live senders before later middleware and handlers.
 - Use `discoverCommands()` to inspect metadata; discovery never installs handlers.
 
 Commands are declared automatically as kind `31992`, with `d` derived from the command name. Withdrawals use kind `5`; user-installed kind `10992` lists are untouched. See [commands](NIP-CD.md) for the complete contract.
@@ -161,7 +155,7 @@ const bot = new Bot({
 });
 
 bot.command({ command: 'ping', scopes: ['kind:14'] }, async ctx => {
-  await ctx.reply('pong', { replyTo: ctx.message.id });
+  await ctx.reply('pong', { replyTo: ctx.input.id });
 });
 
 await bot.start();

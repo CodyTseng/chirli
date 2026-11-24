@@ -10,9 +10,9 @@ const alice = new Bot({signer:aliceSigner,relays,database:':memory:',storageKey:
 const bob = new Bot({signer:bobSigner,relays,database:':memory:',storageKey:generateSecretKey()});
 const bot = bob;
 bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { await ctx.reply('pong'); });
-const reply = new Promise<void>(resolve => alice.handle(({ message }) => {
+const reply = new Promise<void>(resolve => alice.handle(({ input }) => {
   // This demo deliberately prints application text; the SDK itself never logs it.
-  console.log(`Alice received: ${message.text}`); resolve();
+  console.log(`Alice received: ${input.text}`); resolve();
 }));
 let timeout: ReturnType<typeof setTimeout> | undefined;
 try {

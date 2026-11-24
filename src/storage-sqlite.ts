@@ -15,6 +15,7 @@ export class SQLiteStorage implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS message_list ON messages(account,time ASC,id ASC);
       CREATE INDEX IF NOT EXISTS message_state ON messages(account,state,time ASC,id ASC);
       CREATE INDEX IF NOT EXISTS message_unfinished ON messages(account,time ASC,id DESC) WHERE state IN ('pending','processing','failed');
+      CREATE TABLE IF NOT EXISTS input_claims(account TEXT,id TEXT,PRIMARY KEY(account,id)) WITHOUT ROWID;
       CREATE TABLE IF NOT EXISTS outbox(account TEXT,id TEXT,payload TEXT,state TEXT,PRIMARY KEY(account,id));
       CREATE INDEX IF NOT EXISTS outbox_state ON outbox(account,state,id);
       CREATE TABLE IF NOT EXISTS evidence(account TEXT,peer TEXT,key TEXT,time INTEGER,id TEXT,PRIMARY KEY(account,peer));
@@ -39,6 +40,10 @@ export class SQLiteStorage implements StorageAdapter {
     if (value.collection !== 'outbox') throw new TypeError('Invalid storage collection');
     return this.db.prepare('INSERT OR IGNORE INTO outbox VALUES(?,?,?,?)')
       .run(account, row.id, row.payload, row.state).changes === 1;
+  }
+
+  claimInput(account: string, id: string): boolean {
+    return this.db.prepare('INSERT OR IGNORE INTO input_claims(account,id) VALUES(?,?)').run(account,id).changes === 1;
   }
 
   queryMessages(account: string, query: MessageQuery = {}): StoredMessage[] {

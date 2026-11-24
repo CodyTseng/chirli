@@ -314,15 +314,25 @@ export function unwrap(event: Event, identity: Identity, policy: EnvelopePolicy 
   return step.value;
 }
 
-export async function unwrapAsync(event: Event, identity: Identity, policy: EnvelopePolicy = splitEnvelope): Promise<DecodedEnvelope | undefined> {
+export async function unwrapAsync(event: Event, identity: Identity, policy: EnvelopePolicy = splitEnvelope, active: () => boolean = () => true): Promise<DecodedEnvelope | undefined> {
+  if (!active()) return undefined;
   const decoder = decode(event, identity, policy);
   let step = decoder.next();
   while (!step.done) {
     const { key, content, peer } = step.value;
     try {
-      step = decoder.next(await key.decrypt(content, peer));
+      const text = await key.decrypt(content, peer);
+      if (!active()) {
+        decoder.return(undefined);
+        return undefined;
+      }
+      step = decoder.next(text);
     }
     catch (error) {
+      if (!active()) {
+        decoder.return(undefined);
+        return undefined;
+      }
       step = decoder.throw(error);
     }
   }

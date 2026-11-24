@@ -14,7 +14,7 @@ bot.command({command:"start",title:"start",description:"Run /start in a private 
 bot.handle(async ctx => {
   const name = await ctx.session.getItem('name');
   if (name === undefined) {
-    const newName = ctx.message.text.trim();
+    const newName = ctx.input.text.trim();
     ctx.session.setItem('name', newName);
     await ctx.reply(`Nice to meet you, ${newName}.`);
     return;

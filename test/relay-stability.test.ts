@@ -49,25 +49,32 @@ test('one failed replica does not recycle another healthy public replica; all-do
  }finally{await bot.close();network.close();}
 });
 
-test('first automatic recovery initializes local pending/failed once across replicas, while later reconnects do not retry business failures',async()=>{
- const network=new ControlledRelays(),identity=localNip17Identity(),author=localNip17Identity(),pending=await makeEvent(author,identity.pubkey,1),failed=await makeEvent(author,identity.pubkey,2),history=await makeEvent(author,identity.pubkey,3),liveFailure=await makeEvent(author,identity.pubkey,4),offlineHistory=await makeEvent(author,identity.pubkey,5);
- let saved:any={version:1,records:{[pending.id]:{event:pending,relay:canonical(urls[0]),state:'pending'},[failed.id]:{event:failed,relay:canonical(urls[0]),state:'failed'}},outbox:[]};
- const store={metadata:()=>structuredClone(saved),saveMetadata:(_key:string,value:unknown)=>{saved=structuredClone(value);}};
+test('automatic relay recovery does not dispatch history or repeat failed handlers across replicas',async()=>{
+ const network=new ControlledRelays(),identity=localNip17Identity(),author=localNip17Identity(),history=await makeEvent(author,identity.pubkey,3),liveFailure=await makeEvent(author,identity.pubkey,4),offlineHistory=await makeEvent(author,identity.pubkey,5);
+ const claims=new Set<string>();
+ const store={metadata:()=>undefined,saveMetadata(){},claimInput(id:string){if(claims.has(id))return false;claims.add(id);return true;}};
  let releaseSecond!:()=>void;const secondGate=new Promise<void>(resolve=>{releaseSecond=resolve;});network.readiness=(url,attempt)=>attempt===1?Promise.reject(new Error('initial EOSE failed')):url===canonical(urls[1])&&attempt===2?secondGate:undefined;
  const calls=new Map<string,number>();await network.wire.publish(urls,history);
- const inbox=new PublicInbox(identity,store as never,network.transport,{relays:urls},urls,{initialDelayMs:1,maxDelayMs:1,jitter:0},()=>[definition],()=>true,async input=>{calls.set(input.event.id,(calls.get(input.event.id)??0)+1);if([failed.id,liveFailure.id].includes(input.event.id))throw new Error('application failure');},()=>{});
- try{await assert.rejects(inbox.start([1]));await until(()=>calls.get(pending.id)===1&&calls.get(failed.id)===1);await inbox.idle();assert.equal(calls.has(history.id),false);assert.equal(saved.records[pending.id].state,'done');assert.equal(saved.records[failed.id].state,'failed');
-  releaseSecond();await until(()=>network.latest(urls[1])?.ready===true);await new Promise(resolve=>setImmediate(resolve));await inbox.idle();assert.equal(calls.get(failed.id),1,'a second recovered replica must not repeat failed initialization work');
-  await network.wire.publish(urls,liveFailure);await inbox.idle();assert.equal(calls.get(liveFailure.id),1);network.latest(urls[0]).drop();network.latest(urls[1]).drop();await network.wire.publish(urls,offlineHistory);await until(()=>urls.every(url=>network.attempts(url)>=3&&network.latest(url)?.ready));await new Promise(resolve=>setImmediate(resolve));await inbox.idle();assert.equal(calls.get(failed.id),1);assert.equal(calls.get(liveFailure.id),1);assert.equal(calls.has(offlineHistory.id),false);
-  inbox.retry(new Set([failed.id]));await inbox.idle();assert.equal(calls.get(failed.id),2,'explicit retry remains available');
+ const inbox=new PublicInbox(identity,store as never,network.transport,{relays:urls},urls,{initialDelayMs:1,maxDelayMs:1,jitter:0},()=>[definition],async input=>{calls.set(input.event.id,(calls.get(input.event.id)??0)+1);if(input.event.id===liveFailure.id)throw new Error('application failure');},()=>{});
+ try{
+  await assert.rejects(inbox.start([1]));await until(()=>network.latest(urls[0])?.ready===true);await inbox.idle();assert.equal(calls.size,0);
+  releaseSecond();await until(()=>network.latest(urls[1])?.ready===true);await new Promise(resolve=>setImmediate(resolve));await inbox.idle();assert.equal(calls.size,0);
+  await network.wire.publish(urls,liveFailure);
+  await inbox.idle();assert.deepEqual(calls,new Map([[liveFailure.id,1]]));
+  network.latest(urls[0]).drop();network.latest(urls[1]).drop();await network.wire.publish(urls,offlineHistory);
+  await until(()=>urls.every(url=>network.attempts(url)>=3&&network.latest(url)?.ready));await new Promise(resolve=>setImmediate(resolve));
+  await inbox.idle();assert.deepEqual(calls,new Map([[liveFailure.id,1]]));assert.ok(claims.has(history.id));assert.ok(claims.has(offlineHistory.id));
  }finally{releaseSecond();inbox.stop();await inbox.idle();network.close();}
 });
 
-test('stop fences delayed first recovery before local unfinished initialization',async()=>{
- const network=new ControlledRelays(),identity=localNip17Identity(),author=localNip17Identity(),pending=await makeEvent(author,identity.pubkey,1);let calls=0,release!:()=>void;
+test('stop fences delayed first relay recovery before the pending publication flush',async()=>{
+ const network=new ControlledRelays(),identity=localNip17Identity(),pending=await makeEvent(identity,identity.pubkey,1);let calls=0,writes=0,release!:()=>void;
  const gate=new Promise<void>(resolve=>{release=resolve;});network.readiness=(_url,attempt)=>attempt===1?Promise.reject(new Error('initial failure')):gate;
- let saved:any={version:1,records:{[pending.id]:{event:pending,relay:canonical(urls[0]),state:'pending'}},outbox:[]};const store={metadata:()=>structuredClone(saved),saveMetadata:(_key:string,value:unknown)=>{saved=structuredClone(value);}};
- const inbox=new PublicInbox(identity,store as never,network.transport,{relays:[urls[0]]},urls,{initialDelayMs:1,maxDelayMs:1,jitter:0},()=>[definition],()=>true,async()=>{calls++;},()=>{});
- try{await assert.rejects(inbox.start([1]));await until(()=>network.attempts(urls[0])===2);inbox.stop();release();await new Promise(resolve=>setImmediate(resolve));await inbox.idle();assert.equal(calls,0);assert.equal(saved.records[pending.id].state,'pending');assert.equal(network.latest(urls[0]),undefined);await new Promise(resolve=>setTimeout(resolve,10));assert.equal(network.attempts(urls[0]),2);
+ const original={version:2,outbox:[{event:structuredClone(pending),relays:[urls[0]]}]};
+ let saved:unknown=structuredClone(original);
+ const store={metadata:()=>structuredClone(saved),saveMetadata:(_key:string,value:unknown)=>{saved=structuredClone(value);}};
+ const transport:Transport={...network.transport,publish:async()=>{writes++;}};
+ const inbox=new PublicInbox(identity,store as never,transport,{relays:[urls[0]]},urls,{initialDelayMs:1,maxDelayMs:1,jitter:0},()=>[definition],async()=>{calls++;},()=>{});
+ try{await assert.rejects(inbox.start([1]));await until(()=>network.attempts(urls[0])===2);inbox.stop();release();await new Promise(resolve=>setImmediate(resolve));await inbox.idle();assert.equal(calls,0);assert.equal(writes,0);assert.deepEqual(saved,original);assert.equal(network.latest(urls[0]),undefined);await new Promise(resolve=>setTimeout(resolve,10));assert.equal(network.attempts(urls[0]),2);
  }finally{release();inbox.stop();await inbox.idle();network.close();}
 });

@@ -10,13 +10,14 @@ const acceptedSigner=nsecSigner(generateSecretKey()),deniedSigner=nsecSigner(gen
 const acceptedKey=await acceptedSigner.getPublicKey(),deniedKey=await deniedSigner.getPublicKey();
 const allowedKeys = [acceptedKey];
 let commands=0,listeners=0,sessionWrites=0;const errors:unknown[]=[];
-const service=new Bot<{ visits: number }>({signer:serviceSigner,inboundPolicy:allowlist(allowedKeys),relays,
+const service=new Bot<{ visits: number }>({signer:serviceSigner,relays,
   storageKey:generateSecretKey(),database:':memory:',transport:relay.transport()});
 const makePeer=(signer:typeof acceptedSigner)=>new Bot({signer,relays,
   storageKey:generateSecretKey(),database:':memory:',transport:relay.transport()});
 const accepted=makePeer(acceptedSigner),denied=makePeer(deniedSigner);
 for(const client of [service,accepted,denied])client.onError(error=>{errors.push(error);});
 const timings:Readonly<RequestTiming>[]=[];
+service.use(allowlist(allowedKeys));
 service.use(requestTiming({onTiming:metric=>{timings.push(metric);}}));
 service.use(async (_ctx, next) => { listeners++; await next(); });
 const bot=service;
@@ -31,14 +32,14 @@ try{
   await bot.start();await accepted.start();await denied.start();
   await denied.send(service.pubkey,'/ping');await service.idle();await denied.idle();assert.equal(timings.length,0);
   assert.deepEqual([commands,listeners,sessionWrites],[0,0,0]);
-  assert.equal(service.history(deniedKey).messages.length,0);
+  assert.equal(service.dmHistory(deniedKey).messages.length,0);
   assert.equal(await service.getSession(deniedKey),undefined);
   await accepted.send(service.pubkey,'/ping');await service.idle();await accepted.idle();
-  assert.equal(accepted.history(service.pubkey).messages[0].text,'pong');
+  assert.equal(accepted.dmHistory(service.pubkey).messages[0].text,'pong');
   assert.deepEqual([commands,listeners,sessionWrites],[1,1,1]);
   if(errors.length)throw new AggregateError(errors,'Allowlist demo failed');
   console.log('Denied sender: no handlers, session, reply or incoming history.');
   console.log('Allowed identity: /ping -> pong; one command and one session.');
   assert.equal(timings.length,1);assert.equal(timings[0].outcome,'success');
-  console.log('Omit inboundPolicy to accept all. allowlist([]) rejects every external sender.');
+  console.log('Omit the allowlist middleware to accept all. bot.use(allowlist([])) rejects every external sender.');
 }finally{await bot.close();await accepted.close();await denied.close();await serviceSigner.close();await acceptedSigner.close();await deniedSigner.close();}

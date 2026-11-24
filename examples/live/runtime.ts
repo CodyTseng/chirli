@@ -89,7 +89,6 @@ See examples/live/README.md for persistent keys, bunker, allowlist and relay set
       readRelays: config.readRelays,
       writeRelays: config.writeRelays,
       discoveryRelays: config.discoveryRelays,
-      inboundPolicy: config.allowlist === undefined ? undefined : allowlist(config.allowlist),
       keySync: config.keySync,
     });
 
@@ -97,10 +96,11 @@ See examples/live/README.md for persistent keys, bunker, allowlist and relay set
       if (config.timing && message) finishHandler(message.id, 'error');
       reportDiagnostic(error, message ? 'handler' : 'background', message ? 'error' : 'warning');
     });
+    if (config.allowlist !== undefined) bot.use(allowlist(config.allowlist));
     if (config.timing) bot.use(async (ctx, next) => {
-      handlerStarts.set(ctx.message.id, performance.now());
+      handlerStarts.set(ctx.input.id, performance.now());
       await next();
-      finishHandler(ctx.message.id, 'ok');
+      finishHandler(ctx.input.id, 'ok');
     });
     configure(bot);
 

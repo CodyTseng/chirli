@@ -1,39 +1,28 @@
 # Incoming sender allowlist
 
-Use the `allowlist` helper as an inbound policy to control which authenticated accounts can send messages to your Bot.
+Register `allowlist` as ordinary middleware to control which authenticated senders reach subsequent middleware, commands and the fallback handler.
 
 ```ts
 import { Bot, allowlist } from 'chirli';
 
-const bot = new Bot({
-  signer,
-  database: './chirli.sqlite',
-  inboundPolicy: allowlist([trustedIdentityPubkey]),
-});
+const bot = new Bot({ signer, database: './chirli.sqlite' });
+bot.use(allowlist([trustedIdentityPubkey]));
 ```
 
-| `inboundPolicy` value | Incoming policy |
+| Middleware | Live processing |
 | --- | --- |
-| Omitted | Accept all authenticated senders |
-| `allowlist([])` | Deny all external senders |
-| `allowlist(pubkeys)` | Accept only the listed senders |
+| No allowlist middleware | All otherwise eligible, authenticated inputs continue |
+| `bot.use(allowlist([]))` | Stop every external live input |
+| `bot.use(allowlist(pubkeys))` | Continue only for a listed sender |
 
-Use lowercase 64-character hex **account public keys**. Convert an `npub` to hex in your application. The account key is the author of the verified seal and the decrypted message. A giftwrap author, split messaging key or bunker connection key cannot identify an allowed sender.
+Use lowercase 64-character hex **account public keys**. Convert an `npub` to hex in your application. For private input, the key is the authenticated author of the seal and decrypted rumor; for public input, it is the verified event author. A giftwrap author, split messaging key or bunker connection key is not an account identity. The helper validates and snapshots its list. Register it before any middleware whose effects should be restricted.
 
-The helper snapshots the list when called. To replace the list, create a new Bot with a new policy and the same signer, mode and database.
+Custom access checks use the same `bot.use(async (ctx, next) => { ... })` API. Read the verified author from `ctx.input.sender` and call `await next()` only if allowed. Use the command's `authorize` option for a single command. Authentication and the atomic ID claim happen before any of these checks.
 
 ## What happens to denied messages
 
-- A newly denied message is discarded before storage, middleware, commands and session access. `bot.receive()` returns `false`, the same result as for a duplicate or unsupported envelope.
-- Existing history remains readable. Previously accepted unfinished work that the new policy denies is consumed without executing handlers. The stored receipt still deduplicates later copies.
-- A newly denied message leaves no denial record. If the policy later changes, the same message may be accepted when received again. A copy received as history is stored without dispatch.
+- An eligible live ID stays claimed even if middleware returns without calling `next()` or throws. A duplicate does not revisit middleware after configuration changes, reconnection or restart. `bot.receive()` can return `true` for a newly claimed input that middleware later stops; this does not mean the sender was authorized.
+- If the allowlist stops a live DM from reaching routing, the SDK does not add it to conversation history or invoke receipt observers. An eligible historical incoming DM also claims only its ID, without running middleware or writing its body. The allowlist does not erase existing history.
+- Outgoing sends, self copies, signed same-identity control traffic and transport recovery are unaffected. This is neither an outbound ACL nor a rate limiter. Crypto and remote signer work may occur before the sender is authenticated.
 
-The allowlist applies to incoming senders in both modes. Outgoing sends and self copies follow the usual routing rules. For command-specific rules, use the `authorize` option described in [NIP-CD commands](NIP-CD.md). See [security](../SECURITY.md) for signer and local storage trust boundaries.
-
-Run `npm run example:allowlist` after building to try the policy with disposable accounts and an in-memory relay.
-
-## Official inbound policy
-
-The optional `inboundPolicy` hook receives only the authenticated sender's lowercase hex identity string and must return a synchronous boolean. It cannot mutate validated messages because no message object is supplied. `allowlist(pubkeys)` validates and snapshots the array; an empty array denies all external senders. It is used at both the post-decrypt/pre-persistence gate and pending startup/retry gate. Historical/reconnect intake uses the same gate. Own copies keep their existing bypass and are not dispatched as incoming messages; signed same-identity account-control events remain outside this external-message policy.
-
-Custom `InboundPolicy` functions should be pure and reentrant because the SDK can check them more than once. Returning `false` explicitly denies the sender. Exceptions and non-boolean results reject processing before new persistence. Operational policy failures can block history checkpoint progress and leave pending work retryable. Middleware registered with `bot.use()` runs after receipt persistence.
+Replace the old `inboundPolicy`, `guards` or constructor `allowlist` option with registered middleware. These constructor options now throw instead of silently running unfiltered. See [security](../SECURITY.md) for signer and local storage boundaries.

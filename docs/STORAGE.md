@@ -1,6 +1,6 @@
 # Message storage
 
-Messages and their processing states belong to `MessageStorage`. The framework's outbox, keys, peer evidence, declarations, sessions and relay checkpoints stay in internal SQLite. Internal persistence accepts only a `database` path; its backend cannot be replaced.
+Retained private messages and their diagnostic states belong to `MessageStorage`. Atomic inbound ID claims, outbox, keys, peer evidence, declarations, sessions and relay checkpoints stay in internal SQLite. Internal persistence accepts only a `database` path; its backend cannot be replaced.
 
 Business conversation state uses `ctx.session`. A Bot can supply a `sessionStore` for that state. Internal sessions used by the framework stay in SQLite. See the [session guide and custom store example](SESSIONS.md#use-a-custom-session-store).
 
@@ -27,7 +27,7 @@ try {
 }
 ```
 
-Bot closes its default message backend. Close an injected backend after closing the Bot. Preserve both databases and any storage key across restarts.
+Bot closes its default message backend. Close an injected backend after closing the Bot. Use fresh database paths for this pre-release storage format, including for any separate history database. Earlier files are unsupported; no migration is provided. Leave them in place if you want to keep them. Preserve the new databases and any storage key across restarts.
 
 ## Three-method interface
 
@@ -39,24 +39,24 @@ interface MessageStorage {
 }
 ```
 
-Each entry contains `id`, `conversation`, millisecond `timestamp`, opaque `payload`, and `state`. The SDK handles payload encryption and decoding. States are `pending`, `processing`, `failed` and `done`; a historical or outgoing message starts as done because it requires no incoming handler.
+Each entry contains `id`, `conversation`, millisecond `timestamp`, opaque `payload`, and `state`. The SDK handles payload encryption and decoding. These are diagnostic fields on conversation records, not a work queue. An admitted live message can be `processing`, `failed` or `done`. Outgoing and self-copy messages need no incoming handler.
 
-- `insert` must atomically insert once by account + ID. Return false on duplicates, preserving the existing payload and state. This is the deduplication boundary.
+- `insert` must atomically insert once by account + ID. Return false on duplicates, preserving the existing payload and state. This deduplicates storage writes; the prior ID claim in internal SQLite separately controls callback eligibility.
 - `updateState` durably changes only an existing record's state, scoped by account + ID. It must not create a missing message.
-- `query` returns detached records. Optional filters are exact `id`, exact `conversation`, and any of `states`; an empty state array matches nothing. `limit` bounds the result, including zero; omission is unbounded for recovery.
+- `query` returns detached records. Optional filters are exact `id`, exact `conversation`, and any of `states`; an empty state array matches nothing. `limit` bounds the result, including zero.
 - `order` defaults to `oldest` (timestamp ASC, ID ASC). `newest` uses timestamp DESC, ID ASC; `recovery` uses timestamp ASC, ID DESC. The optional `{timestamp, id}` cursor is exclusive in that order.
-- Implement filtering, ordering, cursors and limits in the database. Queries for one message, a conversation, one state and unfinished recovery should use indexes.
+- Implement filtering, ordering, cursors and limits in the database. Queries by exact ID, conversation or diagnostic state should use indexes.
 - All methods are synchronous and durable on return. Promise-returning methods are unsupported.
 
-History, `getMessage`, `listMessages`, `getMessageState`, duplicate detection and unfinished-message recovery all use this same backend. There are no separate processing flags in the internal database after a successful handoff. No transaction, outbox, keyring or metadata interface is required from custom implementations.
+History, `getMessage`, `listMessages` and `getMessageState` use this backend. A claimed ID need not have a history entry. An eligible live DM is saved only when the middleware chain reaches routing. A stopped or historical incoming message is never written here solely because its ID was claimed. No inbound claim, outbox, keyring or metadata interface is required from custom implementations.
 
 ## Failures and restart
 
-For cross-store writes, internal SQLite first commits a temporary message handoff with the corresponding peer metadata or exact outgoing outbox bundle. Only then does the SDK insert the message into `MessageStorage`. Successful insertion removes the temporary record. A crash or uncertain insert can repeat insertion, so duplicates must never reset an existing processing state.
+For cross-store writes, internal SQLite first commits a temporary message handoff with the corresponding peer metadata or exact outgoing outbox bundle. Only then does the SDK insert the message into `MessageStorage`. Successful insertion removes the temporary record. A crash or uncertain insert can repeat insertion, so duplicates must never reset an existing diagnostic state. This repairs storage only, not a handler attempt.
 
-A failed insert leaves the handoff durable and blocks handler dispatch. Startup, history and list reads, inbox retry and later writes can retry it. A send may fail after committing its exact outbox bundle. Use `flushOutbox()` to retry that bundle. A new `send()` creates a new message.
+A failed insert can leave a durable handoff for storage recovery. Recovering that record later does not call middleware or handlers. A send may fail after committing its exact outbox bundle. Use `flushOutbox()` to retry that bundle. A new `send()` creates a new message.
 
-Successful handling writes done to the message backend. A state-write failure leaves the durable state retryable and reports an error. External handler effects may run again: application effects still need idempotence. One active Bot/process per account database is supported.
+An error in a handler or state write does not reopen the ID claim. Keep the internal database as well as any injected history backend across restarts. To retry business effects, persist and operate your own jobs. One active Bot/process per account database is supported.
 
 ## SQLite and encryption
 
@@ -68,4 +68,4 @@ Successful handling writes done to the message backend. A state-write failure le
 
 ## Public command journal
 
-Verified public input processing, bounded ID deduplication and exact signed reply retries live in a distinct internal account/mode metadata journal; they do not use the replaceable DM MessageStorage. Default public sessions use a separate namespace. Custom SessionStore implementations must preserve public/private and account key separation. The selected storage codec applies to public journal/session values as well. See [public recovery limits](PUBLIC.md#recovery-and-limits).
+Public inputs retain canonical ID claims, not a history, incoming body or queued callback payload. Signed outgoing public replies and reactions share a durable public outbox with exact-ID retries. Neither uses the replaceable DM MessageStorage. Default public sessions use a separate namespace. Custom SessionStore implementations must preserve public/private and account key separation. The selected storage codec applies to public outbox and session values. See [public claims and outgoing retries](PUBLIC.md#claims-and-outgoing-retries).

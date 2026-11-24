@@ -28,23 +28,21 @@ Command execution, publication and discovery are independent: discovery never in
 
 1. Construct the Bot and register handlers and the full command set.
 2. `start()` publishes key/relay metadata and reconciles the public command catalog, including an empty set.
-3. Startup restores unfinished work, opens inbox subscriptions and retries the outbox. Every write relay must accept command reconciliation. One ready DM replica can serve the Bot while other DM replicas reconnect.
+3. Startup opens inbox subscriptions and retries outgoing publications. It never replays claimed business inputs. Every write relay must accept command reconciliation. One ready DM replica can serve the Bot while other DM replicas reconnect.
 4. The live runner prints the identity and QR after startup succeeds.
 
-Stop cancels subscription/reconnect demand and drains intake, handlers and SDK work. Close then releases owned resources. Application timers are stopped and awaited before their injected dependencies are closed. Handler calls to self-draining `idle`, `retryInbox`, `stop` or `close` reject; `requestStop()` requests shutdown without waiting on the caller.
+Stop cancels subscription/reconnect demand and drains intake, handlers and SDK work. Close then releases owned resources. Application timers are stopped and awaited before their injected dependencies are closed. Handler calls to self-draining `idle`, `stop` or `close` reject; `requestStop()` requests shutdown without waiting on the caller.
 
 ## Incoming messages
 
-Giftwrap and seal signatures, rumor hash/author, times and one-to-one routing are verified before persistence. The optional inbound policy runs after authentication and before peer evidence, history insertion and dispatch.
+See the [event processing flow](docs/API.md#event-processing-flow) for the complete path from authentication to outgoing publication.
 
-A temporary rumor handoff and its key evidence commit atomically in internal SQLite before insertion into MessageStorage. The handoff is removed after durable insertion. `(account/mode, rumor ID)` deduplicates wrappers across relays and restarts.
+Giftwrap and seal signatures, rumor hash/author, times and one-to-one routing are verified before persistence. Internal SQLite atomically claims the canonical ID in the account/mode scope before any business middleware. Multiple giftwraps for the same rumor do not create multiple attempts.
 
-- New incoming live messages enter `pending → processing → done`.
-- A handler failure records `failed`; retry or restart can run it again.
-- History and outgoing self copies become `done` without business dispatch.
-- Conversation queues are serial; different conversations can proceed concurrently.
-
-Receipt observers receive detached copies and do not control durable success. Multiple durable handlers form one processing group, so a later failure can repeat earlier effects. Session saves and arbitrary external effects are not one transaction; applications need their own idempotency.
+- An unseen live claim may enter the serial conversation queue; different conversations can proceed concurrently.
+- A middleware stop, failure or crash does not reopen the claim. The SDK does not store an incoming callback payload to replay.
+- Routing retains an admitted live DM in private conversation history and sends detached copies to receipt observers. Passive historical inputs claim only their IDs, while outgoing self copies can still populate private history.
+- Conversation history and outgoing publication have separate lifecycles from the ID claim. Applications own durable jobs, session coordination and idempotency for external effects.
 
 ## Outgoing messages
 
@@ -78,7 +76,7 @@ The NIP-46 signer uses an `AbstractSimplePool` adapter backed by its own `WebSoc
 
 Recovered frames remain history. Saturated timestamp boundaries, page limits or failed reads leave coverage incomplete. No full archive or durable undecryptable-envelope quarantine is promised.
 
-Store applies AES-GCM when a storage key is supplied, otherwise tagged plaintext. MessageStorage owns message records, duplicate detection and processing state. Its default sqliteMessageStorage uses indexed native queries. Internal SQLite owns outbox, keys, metadata and temporary cross-store handoffs, and accepts only a database path. Failed handoffs are replayed without replacing existing message state; internal message copies are removed after successful insertion. The SDK supports one active Client/process per account database. Distributed claims, admission/backpressure limits, pruning, forward secrecy and exactly-once external effects remain outside its scope.
+Store applies AES-GCM when a storage key is supplied, otherwise tagged plaintext. MessageStorage owns retained private conversation records and their diagnostic states. Internal SQLite owns atomic inbound ID claims. Its default sqliteMessageStorage uses indexed native queries. Internal SQLite owns outbox, keys, metadata and temporary cross-store handoffs, and accepts only a database path. Failed history handoffs can be repaired without replaying callbacks or replacing existing message state; internal message copies are removed after successful insertion. Use a fresh database for this storage format; no migration from earlier pre-release formats is provided. The SDK supports one active Client/process per account database. Distributed claims, admission/backpressure limits, pruning, forward secrecy and exactly-once external effects remain outside its scope.
 
 ## References and validation
 
@@ -88,18 +86,18 @@ Tests cover protocol verification, persistence/restart, command reconciliation, 
 
 See [API](docs/API.md), [command lifecycle](docs/NIP-CD.md), [key custody](docs/KEYS.md), [storage](docs/STORAGE.md), [recovery](docs/RECOVERY.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
 
-## Optional official policy and timing
+## Optional access and timing middleware
 
-`inbound-policy.ts` supplies an identity allowlist helper and the `InboundPolicy` type. Client passes only the authenticated sender string to the optional policy at verified intake and before dispatching pending work. `request-timing.ts` supplies downstream middleware with a frozen duration and outcome metric and isolates observer callbacks from processing.
+`allowlist` returns ordinary middleware over the authenticated input identity. It runs only on a claimed live attempt, like other registered middleware. `request-timing.ts` supplies downstream middleware with a frozen duration and outcome metric and isolates observer callbacks from processing.
 
 ## Public input isolation
 
-`public-inbox.ts` owns a separate verified kind 1/1111 subscription and durable public journal in internal account/mode storage. Only matching, unambiguously targeted registered commands enter business middleware. Admission checks signatures, source relay, author policy, structure, scope and invocation before persistence, and repeats policy before dispatch. Per-root queues and `public:` session keys never use DM message rows or peer sessions. `bot.observe`, message history/state/listing remain DM-only.
+`public-inbox.ts` owns a separate verified kind 1/1111 subscription. Only matching, unambiguously targeted registered commands enter business middleware. Admission checks signatures, source relay, structure, scope and invocation before atomically claiming the event ID. There is no durable public input body or processing journal. Per-root queues and `public:` session keys never use DM message rows or peer sessions. `bot.observe`, message history/state/listing remain DM-only.
 
-`public-thread.ts` parses legacy/NIP-22 topology, batches a root across legacy `#e` and modern `#E` (plus coordinate variants), and follows only the trigger ancestor branch under one deadline and size/lookup/depth limits. Public replies are signed kind 1111 events with a durable outbox, configured write/source destinations, and exact-ID retries. Transport queries have no cancellation API; a timed-out resolver returns while already acquired transport queries settle under transport budgets. Stop drains active processing and cancels subscription/reconnect demand.
+`public-thread.ts` parses legacy/NIP-22 topology, batches a root across legacy `#e` and modern `#E` (plus coordinate variants), and follows only the trigger ancestor branch under one deadline and size/lookup/depth limits. Public replies (kind 1111) and NIP-25 reactions (kind 7) share a durable outbox, configured write/source destinations, and exact-ID retries. Transport queries have no cancellation API; a timed-out resolver returns while already acquired transport queries settle under transport budgets. Stop drains active processing and cancels subscription/reconnect demand.
 
 ## Event-based delayed actions
 
-Client.reply/thread resolve a detached original input event into either an exact account-bound authenticated incoming DM record or a reverified public target. Bot exposes that path directly, and handler methods capture independent anchor snapshots and use the same execution. Public target lookup retains no new event-body index: a signed supplied event is sufficient, while the existing journal may supply known source provenance. Private thread reads retain the original record cutoff. No job queue or idempotency layer is introduced.
+Reply, reaction and thread calls resolve a detached original input event into either an exact account-bound authenticated incoming DM record or a reverified public target. Bot exposes that path directly, and handler methods capture independent anchor snapshots and use the same execution. Public target lookup retains no new event-body index: a signed supplied event is sufficient, and only the immediate handler context retains known source provenance. Private thread reads retain the original record cutoff. No job queue or idempotency layer is introduced.
 
-Command args use a single Zod 4 object. command-schema.ts projects its supported positional subset into unchanged wire CommandArgument metadata at registration. Entry policy and ordinary middleware precede decoding/validation. Only recognized target/scope matches can raise a framework terminal InvalidArgsError. Such errors are consumed after centralized observation; operational/business errors preserve retry behavior. Args-dependent authorization suppresses invalid-input response hooks; valid authorization and command-only context use Zod's parsed output.
+Command args use a single Zod 4 object. command-schema.ts projects its supported positional subset into unchanged wire CommandArgument metadata at registration. Ordinary middleware precedes decoding/validation. Only recognized target/scope matches can raise a framework terminal InvalidArgsError. Such errors are consumed after centralized observation; operational/business errors are reported without retrying the callback. Args-dependent authorization suppresses invalid-input response hooks; valid authorization and command-only context use Zod's parsed output.

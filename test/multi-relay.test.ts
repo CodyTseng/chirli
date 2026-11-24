@@ -47,10 +47,10 @@ test('initially unavailable replica retries independently and recovers missed me
  let calls=0;client.handle(()=>{calls++;});client.onError(()=>{});
  try{
   await client.announce();second.pauseReads(true);await client.start();
-  const old=await wrap(rumor(sender.pubkey,identity.pubkey,'/missed on replica'),sender,identity.pubkey,identity.pubkey,standardEnvelope);await wire.publish([second.url],old);
-  second.pauseReads(false);await until(()=>client.history(sender.pubkey).messages.length===1);await client.idle();assert.equal(calls,0);assert.equal(client.history(sender.pubkey).messages[0].source,'history');
+  const missed=rumor(sender.pubkey,identity.pubkey,'/missed on replica'),old=await wrap(missed,sender,identity.pubkey,identity.pubkey,standardEnvelope);await wire.publish([second.url],old);
+  second.pauseReads(false);await until(()=>client.store.checkpoint(second.url)!>0);await client.idle();assert.equal(calls,0);assert.deepEqual(client.history(sender.pubkey).messages,[]);
   const results=await client.syncHistory();assert.equal(results.length,2);assert.ok(results.every(r=>r.status==='window-complete'));assert.ok(client.store.checkpoint(first.url));assert.ok(client.store.checkpoint(second.url));
   // Rewrap the already recovered rumor through another live replica: dedup still wins.
-  const duplicate=await wrap(client.history(sender.pubkey).messages[0].rumor,sender,identity.pubkey,identity.pubkey,standardEnvelope);await wire.publish([first.url],duplicate);await client.idle();assert.equal(calls,0);
+  const duplicate=await wrap(missed,sender,identity.pubkey,identity.pubkey,standardEnvelope);assert.equal(await client.receive(duplicate,'live',{relay:first.url}),false);await client.idle();assert.equal(calls,0);
  }finally{await client.close();wire.close();await first.close();await second.close();}
 });

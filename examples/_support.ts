@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { matchFilter, verifyEvent, type Event, type Filter } from 'nostr-tools';
-import { Bot, generateSecretKey, nsecSigner, type ProtocolMode, type Message, type Subscription, type Transport } from 'chirli';
+import { Bot, generateSecretKey, nsecSigner, type ProtocolMode, type Input, type Subscription, type Transport } from 'chirli';
 
 /** Demo-only relay substitute: no sockets, filesystem, credentials, or external services. */
 export class MemoryRelay {
@@ -53,10 +53,10 @@ export function createDemo<S = Record<string, unknown>>(mode: ProtocolMode = 'ni
   });
   const user = createBot(userSigner, transports[0]);
   const service = createBot(serviceSigner, transports[1]);
-  const failures: unknown[] = [], replies: Message[] = [];
+  const failures: unknown[] = [], replies: Input[] = [];
   user.onError(error => { failures.push(error); });
   service.onError(error => { failures.push(error); });
-  user.handle(({ message }) => { replies.push(message); });
+  user.handle(({ input }) => { replies.push(input); });
   const check = () => { if (failures.length) throw new AggregateError(failures, 'Demo handler failed'); };
   return {
     user, service,

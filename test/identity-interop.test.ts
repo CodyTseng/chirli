@@ -23,9 +23,9 @@ const list=(identity:Identity,url:string)=>identity.sign({kind:10050,created_at:
 test('PsstPsst identity-recipient fixture decrypts, and the reply carries the n required by account intake',async()=>{
  const fixture=JSON.parse(await readFile(new URL('./fixtures/identity-interop.json',import.meta.url),'utf8'));
  const identity=localNip17Identity(Buffer.from(fixture.recipient.identitySecret,'hex'));
- const client=new Client({mode:'nip17',identity,relays:['ws://unused.invalid'],database:':memory:',storageKey:generateSecretKey()});
+ const client=new Client({mode:'nip17',identity,relays:['ws://unused.invalid'],database:':memory:',storageKey:generateSecretKey(),transport:simulated(()=>[]).transport});
  try{
-  assert.equal(await client.receive(fixture.giftWrap,'history'),true);assert.equal(client.history(fixture.sender.pubkey).messages[0].id,fixture.rumor.id);
+  await client.start();assert.equal(await client.receive(fixture.giftWrap,'live'),true);await client.idle();assert.equal(client.history(fixture.sender.pubkey).messages[0].id,fixture.rumor.id);
   assert.equal(client.store.evidence(fixture.sender.pubkey)?.key,getPublicKey(Buffer.from(fixture.sender.encryptionSecret,'hex')));
   const r=rumor(identity.pubkey,fixture.sender.pubkey,'identity-key reply');
   const reply=await wrap(r,identity,fixture.sender.pubkey,getPublicKey(Buffer.from(fixture.sender.encryptionSecret,'hex')),identitySplitEnvelope);
@@ -140,9 +140,9 @@ test('peer seal and declaration key evidence preserve rotation order without imp
  const claim=await peer.sign({kind:10044,created_at:20,tags:[['n',getPublicKey(newKey)]],content:''}),dm=await list(peer,relay),fixture=simulated(()=>[claim,dm]);
  const client=new Client({mode:'nip17',identity,relays:[relay],transport:fixture.transport,database:':memory:',storageKey:generateSecretKey()});
  try{
-  assert.equal((await client.refreshPeer(peer.pubkey)).encryptionPubkey,getPublicKey(newKey));
+  await client.start();assert.equal((await client.refreshPeer(peer.pubkey)).encryptionPubkey,getPublicKey(newKey));
   await client.receive(await wrap(rumor(peer.pubkey,identity.pubkey,'older history',15000),peer,identity.pubkey,identity.pubkey),'history');assert.equal((await client.refreshPeer(peer.pubkey)).encryptionPubkey,getPublicKey(newKey));
-  await client.receive(await wrap(rumor(peer.pubkey,identity.pubkey,'newer seal',30000),peer,identity.pubkey,identity.pubkey),'live');assert.equal((await client.refreshPeer(peer.pubkey)).encryptionPubkey,getPublicKey(peer.encryptionKey));
+  await client.receive(await wrap(rumor(peer.pubkey,identity.pubkey,'newer seal',30000),peer,identity.pubkey,identity.pubkey),'live');await client.idle();assert.equal((await client.refreshPeer(peer.pubkey)).encryptionPubkey,getPublicKey(peer.encryptionKey));
  }finally{await client.close();}
 });
 

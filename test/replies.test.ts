@@ -15,11 +15,12 @@ for (const mode of ['nip17', 'nip4e'] as const) {
     const received: Message[] = [];
     const parents: (Message | undefined)[] = [];
     sender.handle(ctx => {
-      received.push(ctx.message);
-      if (ctx.message.replyTo) parents.push(ctx.getMessage(ctx.message.replyTo));
+      const message = sender.getMessage(ctx.input.id)!;
+      received.push(message);
+      if (message.replyTo) parents.push(sender.getMessage(message.replyTo));
     });
     bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
-      await ctx.reply('pong', { replyTo: ctx.message.id });
+      await ctx.reply('pong', { replyTo: ctx.input.id });
     });
 
     try {
@@ -39,9 +40,9 @@ for (const mode of ['nip17', 'nip4e'] as const) {
       assert.deepEqual(parents.map(parent => parent?.text), ['/ping', '/ping']);
       assert.equal(sender.getMessage(followUp.id)?.replyTo, original.id);
       assert.equal(bot.getMessage(followUp.id)?.direction, 'outgoing');
-      assert.equal(sender.history(bot.pubkey).messages.find(message => message.id === followUp.id)?.replyTo, original.id);
-      assert.equal(bot.history(sender.pubkey).messages.find(message => message.id === followUp.id)?.replyTo, original.id);
-      assert.equal(bot.history(sender.pubkey).messages.find(message => message.id === original.id)?.replyTo, undefined);
+      assert.equal(sender.dmHistory(bot.pubkey).messages.find(message => message.id === followUp.id)?.replyTo, original.id);
+      assert.equal(bot.dmHistory(sender.pubkey).messages.find(message => message.id === followUp.id)?.replyTo, original.id);
+      assert.equal(bot.dmHistory(sender.pubkey).messages.find(message => message.id === original.id)?.replyTo, undefined);
 
       const wraps = await senderWire.query(relays, { kinds: [1059] });
       assert.ok(wraps.length > 0);
@@ -57,33 +58,44 @@ for (const mode of ['nip17', 'nip4e'] as const) {
   });
 }
 
-test('historical replies resolve by ID and context limits lookup to the current conversation', async () => {
+test('recorded live replies resolve by ID on Bot; a handler can explicitly constrain local lookups', async () => {
   const signer = nsecSigner(generateSecretKey());
   const transport = new MemoryRelay().transport();
   const bot = new Bot({ signer, transport, relays: ['wss://reply.invalid'], database: ':memory:' });
   const peer = localNip17Identity(), other = localNip17Identity();
   const parents: (Message | undefined)[] = [];
   bot.handle(ctx => {
-    if (ctx.message.replyTo) parents.push(ctx.getMessage(ctx.message.replyTo));
+    const replyTo = bot.getMessage(ctx.input.id)?.replyTo;
+    if (!replyTo) return;
+    const parent = bot.getMessage(replyTo);
+    parents.push(parent?.conversation === ctx.conversation ? parent : undefined);
   });
 
   try {
     await bot.start();
-    const original = rumor(peer.pubkey, bot.pubkey, 'Historical original');
-    const reply = rumor(peer.pubkey, bot.pubkey, 'Historical reply', undefined, original.id);
+    const original = rumor(peer.pubkey, bot.pubkey, 'Recorded original');
+    const reply = rumor(peer.pubkey, bot.pubkey, 'Recorded reply', undefined, original.id);
     for (const message of [original, reply]) {
-      assert.equal(await bot.receive(await wrap(message, peer, bot.pubkey, bot.pubkey, standardEnvelope), 'history'), true);
+      assert.equal(await bot.receive(await wrap(message, peer, bot.pubkey, bot.pubkey, standardEnvelope), 'live'), true);
     }
-    assert.equal(bot.getMessage(reply.id)?.source, 'history');
-    const historicalReply = bot.history(peer.pubkey).messages.find(message => message.id === reply.id);
-    assert.equal(historicalReply?.replyTo, original.id);
-    assert.equal(bot.getMessage(original.id)?.text, 'Historical original');
-    assert.deepEqual(parents, []);
+    await bot.idle();
+    const firstPage = bot.dmHistory(peer.pubkey, { limit: 1 });
+    assert.equal(firstPage.coverage, 'local-only');
+    assert.equal(firstPage.complete, false);
+    assert.ok(firstPage.nextCursor);
+    const secondPage = bot.dmHistory(peer.pubkey, { cursor: firstPage.nextCursor, limit: 1 });
+    assert.deepEqual(new Set([...firstPage.messages, ...secondPage.messages].map(message => message.id)), new Set([original.id, reply.id]));
+    assert.equal('history' in bot, false);
+    assert.equal(bot.getMessage(reply.id)?.source, 'live');
+    const recordedReply = bot.dmHistory(peer.pubkey).messages.find(message => message.id === reply.id);
+    assert.equal(recordedReply?.replyTo, original.id);
+    assert.equal(bot.getMessage(original.id)?.text, 'Recorded original');
+    assert.deepEqual(parents.map(parent=>parent?.id), [original.id]);
 
     const unrelated = rumor(other.pubkey, bot.pubkey, 'Cross-conversation reply', undefined, original.id);
     await bot.receive(await wrap(unrelated, other, bot.pubkey, bot.pubkey, standardEnvelope), 'live');
     await bot.idle();
-    assert.deepEqual(parents, [undefined]);
+    assert.deepEqual(parents.map(parent=>parent?.id), [original.id,undefined]);
     assert.equal(bot.getMessage('0'.repeat(64)), undefined);
     assert.throws(() => bot.getMessage('invalid'), /Invalid message ID/);
   } finally {

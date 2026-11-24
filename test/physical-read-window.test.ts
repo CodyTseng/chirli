@@ -30,6 +30,10 @@ async function relay(hold=false){
  await new Promise<void>(resolve=>http.listen(0,'127.0.0.1',resolve));fixture.url=`ws://127.0.0.1:${(http.address() as {port:number}).port}`;return fixture;
 }
 const wire=(eoseTimeoutMs=100)=>new WebSocketTransport({connectionTimeoutMs:1000,eoseTimeoutMs,authTimeoutMs:300,idleTimeoutMs:10000,heartbeatIntervalMs:10000,heartbeatTimeoutMs:1000});
+function claimStore(){
+ const ids=new Set<string>();
+ return {metadata:()=>undefined,saveMetadata(){},claimInput(id:string){if(ids.has(id))return false;ids.add(id);return true;}} as never;
+}
 
 test('physical OPEN is connected before EOSE, and EOSE/REQ/AUTH-required failures do not disconnect an OPEN socket',async()=>{
  const one=await relay(),two=await relay(),transport=wire(200);two.onReq=(ws,id)=>ws.send(JSON.stringify(['EOSE',id]));
@@ -43,13 +47,13 @@ test('physical OPEN is connected before EOSE, and EOSE/REQ/AUTH-required failure
 test('an OPEN socket does not make a failed inbox REQ usable; explicit same-kind retry reuses the socket',async()=>{
  const fixture=await relay(),transport=wire(),identity=localNip17Identity(),author=localNip17Identity();let requests=0,calls=0;
  fixture.onReq=(socket,id)=>{requests++;socket.send(JSON.stringify(requests===1?['CLOSED',id,'blocked: first']:['EOSE',id]));};
- const definition={id:'ping',command:'ping',title:'Ping',description:'Ping',scopes:['kind:1']};const inbox=new PublicInbox(identity,{metadata:()=>undefined,saveMetadata(){}} as never,transport,{relays:[fixture.url]},[fixture.url],false,()=>[definition],()=>true,async()=>{calls++;},()=>{});
+ const definition={id:'ping',command:'ping',title:'Ping',description:'Ping',scopes:['kind:1']};const inbox=new PublicInbox(identity,claimStore(),transport,{relays:[fixture.url]},[fixture.url],false,()=>[definition],async()=>{calls++;},()=>{});
  try{await assert.rejects(inbox.start([1]));assert.equal(physicalConnectionState(transport,fixture.url),true);await inbox.start([1]);assert.equal(requests,2);assert.equal(fixture.connections,1);fixture.push(await author.sign({kind:1,created_at:1,tags:[],content:`/ping@${npubEncode(identity.pubkey)}`}));await until(()=>calls===1);await inbox.idle();}finally{inbox.stop();transport.close();await fixture.close();}
 });
 
 test('local inbox window settles once, while verified public timestamps gate late history until real EOSE',async()=>{
  const fixture=await relay(),transport=wire(60),identity=localNip17Identity(),author=localNip17Identity();let calls=0,boundary:number|undefined;
- const definition={id:'ping',command:'ping',title:'Ping',description:'Ping',scopes:['kind:1']},inbox=new PublicInbox(identity,{metadata:()=>undefined,saveMetadata(){}} as never,transport,{relays:[fixture.url]},[fixture.url],false,()=>[definition],()=>true,async()=>{calls++;},()=>{});
+ const definition={id:'ping',command:'ping',title:'Ping',description:'Ping',scopes:['kind:1']},inbox=new PublicInbox(identity,claimStore(),transport,{relays:[fixture.url]},[fixture.url],false,()=>[definition],async()=>{calls++;},()=>{});
  const receive=inbox.receive.bind(inbox);inbox.receive=(event,...args)=>{boundary=localReadBoundary(event);return receive(event,...args);};
  const make=(created_at:number,nonce:string)=>author.sign({kind:1,created_at,tags:[['nonce',nonce]],content:`/ping@${npubEncode(identity.pubkey)}`});
  try{let completed=0;await inbox.start([1]).then(()=>{completed++;});assert.equal(physicalConnectionState(transport,fixture.url),true);fixture.push(await make(1,'old'));await until(()=>boundary!==undefined);assert.equal(calls,0);
@@ -61,7 +65,7 @@ test('local inbox window settles once, while verified public timestamps gate lat
 test('fallback DM execution checks decrypted rumor time, never backdated gift-wrap time',async()=>{
  const fixture=await relay(),transport=wire(60),identity=localNip17Identity(),peer=localNip17Identity();fixture.onReq=(socket,id,filter)=>{if(!filter.kinds?.includes(1059))socket.send(JSON.stringify(['EOSE',id]));};
  const client=new Client({identity,transport,relays:[fixture.url],database:':memory:',keySync:false,recovery:false});const handled:string[]=[];client.handle(message=>{handled.push(message.text);});
- try{await client.start();const old=rumor(peer.pubkey,identity.pubkey,'old',1000),fresh=rumor(peer.pubkey,identity.pubkey,'fresh',(Math.floor(Date.now()/1000)+2)*1000);const oldWrap=await wrap(old,peer,identity.pubkey,identity.pubkey,standardEnvelope),freshWrap=await wrap(fresh,peer,identity.pubkey,identity.pubkey,standardEnvelope);assert.ok(freshWrap.created_at<=Math.floor(Date.now()/1000));fixture.push(oldWrap);fixture.push(freshWrap);await until(()=>handled.length===1);await client.idle();assert.deepEqual(handled,['fresh']);assert.equal(client.history(peer.pubkey).messages.find(message=>message.id===old.id)!.source,'history');assert.equal(client.history(peer.pubkey).messages.find(message=>message.id===fresh.id)!.source,'live');
+ try{await client.start();const old=rumor(peer.pubkey,identity.pubkey,'old',1000),fresh=rumor(peer.pubkey,identity.pubkey,'fresh',(Math.floor(Date.now()/1000)+2)*1000);const oldWrap=await wrap(old,peer,identity.pubkey,identity.pubkey,standardEnvelope),freshWrap=await wrap(fresh,peer,identity.pubkey,identity.pubkey,standardEnvelope);assert.ok(freshWrap.created_at<=Math.floor(Date.now()/1000));fixture.push(oldWrap);fixture.push(freshWrap);await until(()=>handled.length===1);await client.idle();assert.deepEqual(handled,['fresh']);assert.equal(client.getMessage(old.id),undefined);assert.equal(await client.receive(oldWrap,'live'),false,'the historical rumor ID was already consumed');assert.equal(client.getMessage(fresh.id)?.source,'live');
  }finally{await client.close();transport.close();await fixture.close();}
 });
 

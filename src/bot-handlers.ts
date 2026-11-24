@@ -6,7 +6,7 @@ import {InvalidArgsError} from './errors.js';
 import {inputOf, type Input, type ThreadOptions, type ThreadResult} from './public-thread.js';
 import type {PublicInput} from './public-inbox.js';
 import type {Event} from 'nostr-tools';
-import type {Rumor} from './protocol.js';
+import type {DecodedEnvelope,Rumor} from './protocol.js';
 import { messageSession, type Session, type SessionStore } from './session.js';
 import { Client, type CommandRegistration, type SendOptions } from './client.js';
 import type { Message } from './store.js';
@@ -15,21 +15,13 @@ import {parseCommandHead,matchesCommandScopes, parseCommand, validateCommandDefi
 export interface Context<S = Record<string, unknown>> {
   input: Input;
   thread(options?:ThreadOptions):Promise<ThreadResult>;
-  /** DM-only compatibility view; throws for public input. */
-  message: Message;
   sender: string;
   conversation: string;
   reply(text: string, options?: SendOptions): ReturnType<Client['send']> | ReturnType<Client['replyPublic']>;
   /** Attach a file using the visibility of the triggering event. */
   replyFile(data: Uint8Array, options?: ReplyFileOptions): ReturnType<Client['replyFile']>;
-  /** React to the current message or another message in this conversation. */
-  react(reaction?: string, messageId?: string): ReturnType<Client['react']>;
-  /** Look up a locally stored message in this conversation. */
-  getMessage(id: string): Message | undefined;
-  history(options?: {
-    limit?: number;
-    cursor?: string;
-  }): ReturnType<Client['history']>;
+  /** React to the current input, keeping its visibility. */
+  react(reaction?: string): ReturnType<Client['react']>;
   session: Session<S>;
 }
 
@@ -82,7 +74,7 @@ export class BotHandlers<S = Record<string, unknown>> {
     for (const definition of this.definitions.values()) {
       this.releaseDefinitions.set(definition.id, client.registerCommandDefinition(definition));
     }
-    this.detach = client.handle(message => this.dispatchMessage(client, message));
+    this.detach = client.handle((message, admit, evidence) => this.dispatchMessage(client, message, admit, evidence), true);
     this.detachPublic = client.handlePublic(input => this.dispatchPublic(client,input));
   }
 
@@ -189,43 +181,42 @@ export class BotHandlers<S = Record<string, unknown>> {
     };
   }
 
-  private async dispatchMessage(client: Client, message: Message) {
+  private async dispatchMessage(client: Client, message: Message, admit: () => void, evidence: DecodedEnvelope) {
     if (this.disposed) {
       return;
     }
-    const anchor=structuredClone(message.rumor);
+    const anchor=structuredClone(message);
     const { session, commit } = messageSession(this.sessionStore(client), message.conversation);
     const ctx: Context<S> = {
       session,
       input:inputOf(message.rumor),
-      thread:options=>client.thread(anchor,options),
-      message,
+      thread:options=>client.threadPrivate(anchor,options),
       sender: message.sender,
       conversation: message.conversation,
-      reply: (text, options) => client.reply(anchor,text,options),
-      replyFile: (data, options) => client.replyFile(anchor, data, options),
-      react: (reaction, id = message.id) => client.react(id, reaction, message.conversation),
-      getMessage: id => client.getMessage(id, message.conversation),
-      history: options => client.history(message.conversation, options)
+      reply: (text, options) => client.send(anchor.conversation,text,options,evidence),
+      replyFile: (data, options) => client.sendFile(anchor.conversation,data,{...options,replyTo:anchor.id},evidence),
+      react: reaction => client.reactToMessage(anchor,reaction,evidence),
     };
-    return this.dispatch(client,ctx,commit,message.rumor,message.relay);
+    return this.dispatch(client,ctx,commit,anchor.rumor,anchor.relay,admit);
   }
 
   private async dispatchPublic(client:Client,input:PublicInput){
     if(this.disposed)return;
-    const anchor=structuredClone(input.event);
+    const anchor=structuredClone(input);
     const store:SessionStore<S>=this.options.sessionStore??{get:key=>client.getPublicSession<Partial<S>>(key),set:(key,value)=>client.setPublicSession(key,value)};
     const {session,commit}=messageSession(store,input.conversation);
-    const privateOnly=():never=>{throw new Error('This compatibility method is only available for direct messages; use input and thread');};
     const ctx:Context<S>={input:inputOf(input.event),sender:input.event.pubkey,conversation:input.conversation,session,
-      get message(){return privateOnly();},
-      reply:(text,options)=>client.reply(anchor,text,options),
-      replyFile:(data,options)=>client.replyFile(anchor,data,options),
-      thread:options=>client.thread(anchor,options),react:privateOnly,getMessage:privateOnly,history:privateOnly};
+      reply:(text,options)=>{
+        if(options&&Object.keys(options).length)return Promise.reject(new TypeError('DM send options are not valid for public replies'));
+        return client.replyPublic(anchor,text);
+      },
+      replyFile:(data,options)=>client.replyPublicFile(anchor,data,options),
+      thread:options=>client.threadPublic(anchor,options),
+      react:reaction=>client.reactPublic(anchor,reaction)};
     return this.dispatch(client,ctx,commit,input.event,input.relay);
   }
 
-  private async dispatch(client:Client,ctx:Context<S>,commit:()=>Promise<void>,event:Event|Rumor,relay?:string){
+  private async dispatch(client:Client,ctx:Context<S>,commit:()=>Promise<void>,event:Event|Rumor,relay?:string,admit?:()=>void){
     this.routing.set(ctx,{event:structuredClone(event),relay});
     const middleware = [...this.middleware];
     const commands = [...this.commandHandlers.values()];
@@ -239,6 +230,7 @@ export class BotHandlers<S = Record<string, unknown>> {
       if (middleware[i]) {
         await middleware[i](ctx, () => dispatch(i + 1));
       } else {
+        admit?.();
         for (const command of commands) {
           if (await command(ctx, client.pubkey)) return;
         }
@@ -256,11 +248,11 @@ export class BotHandlers<S = Record<string, unknown>> {
         try {
           await this.errorHandler(e, ctx);
         } catch {
-          // An observer failure must not replace the original retryable error.
+          // An observer failure must not replace the original error.
         }
       }
-      if(e instanceof InvalidArgsError&&e===this.invalidArgs.get(ctx))return; // Terminal input errors are observed once, never retried/reported as operations.
-      // Business errors remain retryable even if observed by catch().
+      if(e instanceof InvalidArgsError&&e===this.invalidArgs.get(ctx))return; // Expected input errors are observed once and not reported as operations.
+      // Business errors reach the operational observer; the input ID stays claimed.
       throw e;
     }
     // Exit the reply-capable middleware/catch chain before reporting an unapproved validator exception.

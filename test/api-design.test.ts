@@ -56,7 +56,7 @@ test('Bot detaches without stopping Client and injected transport remains applic
   } finally { a.dispose(); b.dispose(); await c.close(); }
 });
 
-test('receipt observers are isolated from business retries and cannot mutate processing input', async () => {
+test('receipt observers are isolated from a failed business attempt and cannot mutate processing input', async () => {
   const c = client(), peer = createIdentity(); let attempts = 0, observations = 0; const errors:unknown[] = [];
   c.onError(error=>{errors.push(error);});
   c.on('message', message=>{observations++;(message as Message).text='changed';throw new Error('observer');});
@@ -65,21 +65,21 @@ test('receipt observers are isolated from business retries and cannot mutate pro
   try {
     await c.start(); const id = await deliver(c,peer,'original'); await settle();
     assert.equal(c.getMessageState(id),'failed'); assert.equal(observations,1);
-    await c.retryInbox({ids:[id]}); assert.equal(c.getMessageState(id),'done'); assert.equal(attempts,2); assert.equal(observations,1);
+    await c.stop(); await c.start(); await c.idle(); assert.equal(c.getMessageState(id),'failed'); assert.equal(attempts,1); assert.equal(observations,1);
     assert.equal(errors.length,3);
   } finally { await c.close(); }
 });
 
-test('message inspection paginates failed rows and retries only requested IDs', async () => {
+test('message inspection paginates failed rows without restarting work', async () => {
   const c = client(), peer = createIdentity(), attempts = new Map<string,number>(); let fail = true;
   c.handle(message=>{attempts.set(message.id,(attempts.get(message.id)??0)+1);if(fail)throw new Error('retry');});
   try {
     await c.start(); const first = await deliver(c,peer,'first'), second = await deliver(c,peer,'second');
     const page = c.listMessages({state:'failed',limit:1}); assert.equal(page.entries.length,1); assert.ok(page.nextCursor);
     const next = c.listMessages({state:'failed',limit:1,cursor:page.nextCursor}); assert.equal(next.entries.length,1); assert.notEqual(next.entries[0].message.id,page.entries[0].message.id); assert.equal(next.nextCursor,undefined);
-    fail=false; await c.retryInbox({ids:[first]}); assert.equal(c.getMessageState(first),'done'); assert.equal(c.getMessageState(second),'failed'); assert.equal(attempts.get(second),1);
+    fail=false; await c.stop(); await c.start(); await c.idle(); assert.equal(c.getMessageState(first),'failed'); assert.equal(c.getMessageState(second),'failed'); assert.equal(attempts.get(first),1); assert.equal(attempts.get(second),1);
     assert.equal(c.getMessageState('f'.repeat(64)),undefined); assert.throws(()=>c.listMessages({cursor:'bad'}),/cursor/); assert.throws(()=>c.listMessages({limit:0}),/limit/);
-    await c.retryInbox({ids:[]}); assert.equal(c.getMessageState(second),'failed'); await c.retryInbox(); assert.equal(c.getMessageState(second),'done');
+    const third=await deliver(c,peer,'third'); assert.equal(c.getMessageState(third),'done');
   } finally { await c.close(); }
 });
 
@@ -176,17 +176,16 @@ test('closing drains default sessions and preserves state inspection across sign
   } finally {release();bot.dispose();await c.close();rmSync(directory,{recursive:true,force:true});}
 });
 
-test('handlers reject self-draining idle/retry calls instead of blocking the conversation', { timeout: 2000 }, async () => {
+test('handlers reject self-draining idle calls instead of blocking the conversation', { timeout: 2000 }, async () => {
   const c = client(), peer = createIdentity();
   let processed = 0;
   c.handle(async () => {
     await assert.rejects(c.idle(), /inside a message handler/);
-    await assert.rejects(c.retryInbox(), /inside a message handler/);
     processed++;
   });
   try {
     await c.start();
-    const id = await deliver(c, peer, 'retry control');
+    const id = await deliver(c, peer, 'idle control');
     assert.equal(processed, 1);
     assert.equal(c.getMessageState(id), 'done');
   } finally {

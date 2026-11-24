@@ -21,14 +21,14 @@ test('WebSocket E2E: discovery, self copy, command consumption, history, rumor d
   let bob = new Client({mode:'nip4e', identity:b, relays:[relay.url], storageKey:key, database:path });
   try {
     await alice.announce(); await bob.announce();
-    // Old commands are synchronized but must never execute.
-    await alice.send(b.pubkey, '/ping old');
+    // Passive receipts claim IDs but do not retain payloads or execute commands.
+    const old = await alice.send(b.pubkey, '/ping old');
     const bot = new Bot<{count:number}>(bob);
     let commands=0, texts=0;
     bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { commands++; ctx.session.setItem('count', (await ctx.session.getItem('count') ?? 0) + 1); await ctx.reply('pong'); });
     bot.handle(async () => { texts++; });
     await alice.start(); await bot.start(); await bob.idle();
-    assert.equal(commands,0);
+    assert.equal(commands,0);assert.equal(bob.getMessage(old.id),undefined);
     const sent = await alice.send(b.pubkey, '/ping'); assert.equal(sent.status,'relay-accepted');
     await until(() => commands===1); await bob.idle(); assert.equal(texts,0);
     assert.equal(bob.store.session<{count:number}>(a.pubkey)?.count,1);
@@ -41,7 +41,7 @@ test('WebSocket E2E: discovery, self copy, command consumption, history, rumor d
     await bot.client.close(); bot.dispose();
     const bytes = await readFile(path); assert.ok(!bytes.includes(Buffer.from('/ping old')));
     bob = new Client({mode:'nip4e', identity:b, relays:[relay.url], storageKey:key, database:path });
-    let replay=0; bob.handle(()=>{replay++;}); await bob.start(); await bob.idle(); assert.equal(replay,0); assert.ok(bob.history(a.pubkey).messages.length>=4);
+    let replay=0; bob.handle(()=>{replay++;}); await bob.start(); await bob.idle(); assert.equal(replay,0); assert.equal(bob.history(a.pubkey).messages.length,3);assert.equal(bob.getMessage(old.id),undefined);
   } finally { await alice.close(); await bob.close(); await relay.close(); await rm(dir,{recursive:true,force:true}); }
 });
 
@@ -61,23 +61,23 @@ test('strict envelope validation, old keys and anti-rollback evidence', async ()
   assert.equal(unwrap(forged,b),undefined);
   const relay=await testRelay(), client=new Client({mode:'nip4e',identity:b,relays:[relay.url],database:':memory:',storageKey:generateSecretKey()});
   try {
-    await client.receive(e,'history');
+    await client.start();await client.receive(e,'live');await client.idle();
     const old=await announcement({...a,encryptionKey:generateSecretKey()},r.created_at-10);
     const transport=new WebSocketTransport();await transport.publish([relay.url],old);await transport.publish([relay.url],await a.sign({kind:10050,created_at:10,tags:[['relay',relay.url]],content:''}));transport.close();
     assert.equal((await client.refreshPeer(a.pubkey)).encryptionPubkey,getPublicKey(a.encryptionKey));
   } finally {await client.close();await relay.close();}
 });
 
-test('failed inbox retry and persistent outbox reuse the same message identities',async()=>{
+test('failed inbound work stays claimed while persistent outbox retries exact message identities',async()=>{
   const relay=await testRelay(), a=localIdentity(), b=localIdentity(), dir=await mkdtemp(join(tmpdir(),'psst-retry-')), path=join(dir,'state.db'), key=generateSecretKey();
   const alice=new Client({mode:'nip4e',identity:a,relays:[relay.url],database:':memory:',storageKey:generateSecretKey()});
   let bob=new Client({mode:'nip4e',identity:b,relays:[relay.url],storageKey:key,database:path});
   try {
     await alice.announce(); await bob.announce();
     let attempts=0; bob.handle(async()=>{attempts++;throw new Error('business failed');}); await bob.start();
-    await alice.send(b.pubkey,'retry inbox'); await until(()=>attempts===1); await bob.idle(); await bob.close();
+    const failed=await alice.send(b.pubkey,'failed inbound'); await until(()=>attempts===1); await bob.idle(); await bob.close();
     bob=new Client({mode:'nip4e',identity:b,relays:[relay.url],storageKey:key,database:path});
-    bob.handle(()=>{attempts++;}); await bob.start();await bob.idle();assert.equal(attempts,2);
+    bob.handle(()=>{attempts++;}); await bob.start();await bob.idle();assert.equal(attempts,1);assert.equal(bob.getMessageState(failed.id),'failed');
     relay.reject(true); const result=await bob.send(a.pubkey,'persist outbox');assert.equal(result.status,'pending');
     const saved=bob.store.outbox()[0]; assert.equal(saved.id,result.id);const ids=saved.events.map(x=>x.event.id);
     await bob.close();relay.reject(false);
@@ -91,7 +91,7 @@ test('exclusive routing and per-conversation concurrency',async()=>{
   const relay=await testRelay(), b=localIdentity(), a=localIdentity(), c=localIdentity();
   const client=new Client({mode:'nip4e',identity:b,relays:[relay.url],database:':memory:',storageKey:generateSecretKey()});const bot=new Bot(client);const seen:string[]=[];let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});
   bot.command({command:"go",title:"go",description:"Run /go in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, () => { seen.push('command'); });
-  bot.handle(async ctx=>{seen.push(ctx.message.text);if(ctx.message.text==='first')await gate;});
+  bot.handle(async ctx=>{seen.push(ctx.input.text);if(ctx.input.text==='first')await gate;});
   try {
     await bot.start();
     for(const [identity,text] of [[a,'first'],[a,'second'],[c,'other']] as const) await client.receive(await wrap(rumor(identity.pubkey,b.pubkey,text),identity,b.pubkey,getPublicKey(b.encryptionKey)),'live');

@@ -47,6 +47,8 @@ export interface OutboxQuery {
 export interface StorageAdapter {
   /** Insert once by account + ID. Return false for an existing record without changing it. */
   insert(account: string, value: StorageRecord): boolean;
+  /** Claim a canonical input ID within the account scope before application dispatch. */
+  claimInput(account: string, id: string): boolean;
   queryMessages(account: string, query?: MessageQuery): StoredMessage[];
   queryOutbox(account: string, query?: OutboxQuery): StoredOutbox[];
   updateMessageState(account: string, id: string, state: MessageState): void;

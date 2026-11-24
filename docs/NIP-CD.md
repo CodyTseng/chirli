@@ -29,7 +29,7 @@ Command metadata is public and goes to `writeRelays`. The `authorize` callback c
 
 ## Automatic startup reconciliation
 
-Before business subscriptions or pending handlers begin, startup:
+Before business subscriptions begin, startup:
 
 1. Reads the executor's complete kind 31992 snapshot from every configured write relay, scoped to its identity author. This is one broad logical scan per relay, with bounded paging when necessary, never one query per command. No `#d` filter or kind 5 query is used for startup reconciliation.
 2. Compares that snapshot with the complete local registry, keeps unchanged definitions and publishes missing/changed definitions.
@@ -51,7 +51,7 @@ await bot.syncCommands();
 
 The published `d` is always the command name in `bot.command()`. Custom `id` arguments, even those matching the command name, are rejected. To remove a command, omit it from the next complete startup registry and restart with the same account and relays. A rename is removal of the old command plus registration of a new command at a different coordinate. If publication fails, `flushAnnouncements()` or `syncCommands()` can optionally await/retry the same automatic process.
 
-`syncCommands()` returns added, updated and removed identifiers only; it is an optional wait/retry helper. Closing the Bot preserves public definitions and durable pending work for restart.
+`syncCommands()` returns added, updated and removed identifiers only; it is an optional wait/retry helper. Closing the Bot preserves public definitions and pending publication operations for restart, not pending handler work.
 
 ## Discovery
 

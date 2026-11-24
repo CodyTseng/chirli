@@ -96,35 +96,31 @@ bot.onError((error, message) => {
 });
 ```
 
-Handlers run serially within a conversation and concurrently across conversations. A failure leaves the message retryable. Historical messages and outgoing self copies are stored without running handlers.
+Handlers run serially within a conversation and concurrently across conversations. An authenticated live input is claimed durably by its canonical ID before middleware. A failure is reported but does not cause a second attempt, even after reconnect or restart. Historical incoming DMs claim IDs without storing their bodies or running handlers. Outgoing self copies can still populate history. [Event processing flow](docs/API.md#event-processing-flow)
 
-`observe(observer)` observes a new receipt; it does not participate in durable processing. Register handlers before `start()`.
+`observe(observer)` monitors new live DMs admitted to local conversation history; it does not control processing. Register handlers before `start()`.
 
-To reference the current message in a reply, pass its ID to `ctx.reply()`:
+To reference the current DM in a reply, pass `ctx.input.id` as `replyTo`:
 
 ```ts
-await ctx.reply('Got it', { replyTo: ctx.message.id });
-
-const parentId = ctx.message.replyTo;
-const parent = parentId === undefined ? undefined : ctx.getMessage(parentId);
+await ctx.reply('Got it', { replyTo: ctx.input.id });
 ```
 
-Use `bot.getMessage(id)` to look up a local message by ID outside a handler. To send a reaction instead, call `ctx.react('👍')` or `bot.react(id, '👍')`.
+Use `bot.getMessage(id)` for local private-message lookup, or `ctx.thread()` to load preceding context. To react to the current input, call `ctx.react('👍')`.
 
-### Inspect and retry
+### Inspect history and retry delivery
 
 ```ts
 const result = await bot.send(peerPubkey, 'Hello');
 // result.status: 'relay-accepted' | 'pending'
 
-const page = bot.history(peerPubkey, { limit: 20 });
+const page = bot.dmHistory(peerPubkey, { limit: 20 });
 const state = bot.getMessageState(messageId);
 
-await bot.retryInbox({ ids: [messageId] });
 await bot.flushOutbox();
 ```
 
-Rumor IDs prevent duplicate intake across relays and restarts. Failed handlers may repeat application effects: use the message ID for application idempotency. Outbox retries reuse the original signed envelopes. Relay acceptance does not confirm delivery or reading.
+Rumor IDs prevent duplicate live attempts across relays and restarts. If a process exits after claiming a message, its callback may never run or may stop partway through. Use an application-owned job if you need durable business retries. Outbox retries reuse the original signed envelopes. Relay acceptance does not confirm delivery or reading.
 
 History is local and paginated. Pass `page.nextCursor` to retrieve older rows; a local page does not imply a complete relay archive.
 
@@ -172,7 +168,7 @@ To remove or rename a command, update the declared command set and restart with 
 
 All registered commands are public on write relays. Startup adds or updates definitions and withdraws commands absent from the local registry. Definitions use kind `31992` and withdrawals use kind `5`; there is no executor-list event. User-installed kind `10992` lists are untouched.
 
-Definitions and scopes describe command availability. Use `inboundPolicy` to authorize senders or an `authorize` callback for an individual typed command. [Command lifecycle](docs/NIP-CD.md) · [Sender authorization](docs/ACCESS.md)
+Definitions and scopes describe command availability. Use `bot.use(allowlist(pubkeys))` to authorize senders, or an `authorize` callback for an individual typed command. [Command lifecycle](docs/NIP-CD.md) · [Sender authorization](docs/ACCESS.md)
 
 ## Configuration
 
@@ -182,7 +178,6 @@ Definitions and scopes describe command availability. Use `inboundPolicy` to aut
 | `database` | SQLite path; defaults to `psstpsst.sqlite` |
 | `messageStorage` | Message backend; defaults to `sqliteMessageStorage` |
 | `storageKey` | Optional 32-byte key for local payload encryption |
-| `inboundPolicy` | Optional synchronous gate for verified incoming senders |
 | `relays` | Common list for each omitted relay role |
 | `dmRelays` | Receive and deliver private messages |
 | `readRelays` | Query public metadata |
@@ -190,7 +185,7 @@ Definitions and scopes describe command availability. Use `inboundPolicy` to aut
 | `discoveryRelays` | Extra targets for public account announcements |
 | `mode` | `nip17` by default; `nip4e` enables separate messaging keys |
 
-Preserve signer credentials, the database and any storage key across restarts. `messageStorage` stores messages, deduplication and processing state; it defaults to `sqliteMessageStorage` in the configured database. Supply `sqliteMessageStorage('./messages.sqlite')` or implement `insert`, `query` and `updateState` to use another message backend. Outbox, keys and other internal data always use SQLite configured by `database`. Custom `Transport` implementations are also supported.
+Use a fresh database for this pre-release storage format. Point `database` to a new path rather than replacing existing files. For subsequent restarts on this format, preserve the signer credentials, database and any storage key. `messageStorage` holds private conversation history and its diagnostic states; it defaults to `sqliteMessageStorage` in the configured database. Supply `sqliteMessageStorage('./messages.sqlite')` or implement `insert`, `query` and `updateState` to use another history backend. ID claims, outbox, keys and other internal data use `database`. Custom `Transport` implementations are also supported.
 
 ### Resource lifecycle
 
@@ -206,7 +201,7 @@ Close Bot before its injected resources. Call stop/close outside message handler
 
 Default NIP-17 uses account-key encryption. Explicit `mode: 'nip4e'` generates or restores separate messaging keys for extension peers. Both modes accept supported standard NIP-17 and NIP-4E messages.
 
-Relay connections are pooled and reconnect independently. History recovery uses bounded overlap paging. Messages recovered after downtime remain history and do not automatically execute commands.
+Relay connections are pooled and reconnect independently. Recovery uses bounded overlap paging. Incoming IDs found after downtime do not run commands or add message bodies to local history; outgoing self copies can still be recovered.
 
 See [key rotation](docs/KEYS.md), [interoperability](docs/INTEROPERABILITY.md), [relay configuration](docs/RELAYS.md) and [recovery](docs/RECOVERY.md) for detailed behavior and limits.
 
@@ -236,28 +231,29 @@ Start with the [first bot tutorial](docs/TUTORIAL.md) for a step-by-step path fr
 | [Contributing](CONTRIBUTING.md) | Development and validation expectations |
 | [Security](SECURITY.md) | Trust boundaries and known limitations |
 
-Chirli supports one-to-one private text, reply references, sending reactions, and explicitly scoped kind 1/1111 public commands. See [public inputs and threads](docs/PUBLIC.md). Groups, receiving or downloading attachments, full archive recovery and exactly-once external effects are outside its scope. One active Bot/process per account database is supported. Public relays, external signer products and production deployments require separate validation.
+Chirli supports one-to-one private text, reply references, private and public reactions, and explicitly scoped kind 1/1111 public commands. See [public inputs and threads](docs/PUBLIC.md). Groups, receiving or downloading attachments, full archive recovery and exactly-once external effects are outside its scope. One active Bot/process per account database is supported. Public relays, external signer products and production deployments require separate validation.
 
 Bot command identifiers come from their command names; custom `id` parameters are rejected. Renaming a command removes the old coordinate and adds the new one. Startup compares one broad author-scoped kind 31992 scan per write relay with the complete local registry; runtime additions synchronize automatically. Remote kind 5 queries belong to independent discovery, while locally pending withdrawals remain durable. See [command lifecycle and upgrade behavior](docs/NIP-CD.md).
 
-## Optional inbound policy and processing timing
+## Optional access and timing middleware
 
 ```ts
 import { Bot, allowlist, requestTiming } from 'chirli';
 
-const bot = new Bot({ signer, inboundPolicy: allowlist(trustedIdentityPubkeys) });
+const bot = new Bot({ signer });
+bot.use(allowlist(trustedIdentityPubkeys));
 bot.use(requestTiming({ onTiming: metric => { console.info(metric); } }));
 bot.command({ command: 'ping', scopes: ['kind:14'] }, async ctx => { await ctx.reply('pong'); });
 await bot.start(); // Command declarations remain automatic.
 ```
 
-`inboundPolicy` runs after identity verification and before incoming history, peer evidence, observers or business callbacks. `allowlist` snapshots the supplied lowercase hex identity keys. `allowlist([])` denies every external sender. Middleware registered through `bot.use()` runs after receipt persistence. [Sender authorization](docs/ACCESS.md)
+`allowlist` snapshots the supplied lowercase hex identity keys. Register it first to block other live middleware and handlers for nonmembers. `allowlist([])` blocks every external live sender. Returning early does not undo the prior ID claim. Passive recovery does not run middleware or retain incoming message bodies. [Sender authorization](docs/ACCESS.md)
 
 `requestTiming({onTiming})` is optional ordinary middleware. Its observer receives only `{durationMs,outcome:'success'|'failure'}` for the downstream processing chain. It never reads message context or error details, does not log by default and cannot let observer failures change processing. It excludes receipt/decryption, queue waiting and session commit after the chain; no command route name is inferred from text. See [API](docs/API.md).
 
 ## Public input and shared context
 
-Register one explicitly scoped command for DMs, notes and comments. Public reads require `publicInbox: {relays: [...]}`; they never use implicit default relays. `ctx.input` contains the authenticated input, `ctx.reply()` chooses encrypted DM or public kind 1111, and `await ctx.thread({limit:30})` lazily loads prior context. Public context/session storage never reads private conversations.
+Register one explicitly scoped command for DMs, notes and comments. Public reads require `publicInbox: {relays: [...]}`; they never use implicit default relays. `ctx.input` contains the authenticated input. `ctx.reply()` and `ctx.react()` preserve its private or public visibility, and `await ctx.thread({limit:30})` lazily loads prior context. Public context/session storage never reads private conversations.
 
 ```ts
 const bot = new Bot({signer, publicInbox:{relays:publicInboxRelays}});
@@ -267,8 +263,8 @@ bot.command({command:'ping',scopes:['kind:14','kind:1','kind:1111']}, async ctx 
 await bot.start();
 ```
 
-Run `npm run example:public` for an offline three-kind demo and deterministic application-owned `/summarize` mock. See [targeting, replies, thread bounds and migration](docs/PUBLIC.md).
+Run `npm run example:public` for an offline three-kind demo and deterministic application-owned `/summarize` mock. See [targeting, replies and thread bounds](docs/PUBLIC.md).
 
-For application-owned background work, retain `ctx.input.event` and later call `await bot.thread(event,{limit:30})` and `await bot.reply(event,text)`. Both preserve private/public routing and reuse handler semantics. DM authentication requires the same account's retained incoming record; a public target requires the complete signed event. See [delayed calls and trust requirements](docs/API.md#replies-and-context-after-a-handler), or run `npm run example:async-reply` entirely offline.
+For application-owned background work, retain `ctx.input.event` and pass it to `bot.thread(event,{limit:30})`, `bot.reply(event,text)` or `bot.react(event,'👍')`. These methods preserve private/public routing and reuse handler semantics. DM authentication requires the same account's retained incoming record; a public target requires the complete signed event. See [delayed calls and trust requirements](docs/API.md#replies-and-context-after-a-handler), or run `npm run example:async-reply` entirely offline.
 
 Command `args` accepts a Zod 4 `z.object(...)` directly. The schema both generates NIP-CD metadata and validates decoded input; handler-only `ctx.args` and the second handler argument share the inferred valid result. Use middleware or `bot.catch` for centralized `InvalidArgsError` handling; no automatic error reply or retry is added. See [schema support and authorization boundaries](docs/API.md#zod-command-arguments).

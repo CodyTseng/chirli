@@ -4,19 +4,19 @@ import { createDemo } from './_support.js';
 // A direct message handler with explicitly selected history.
 const demo = createDemo();
 demo.service.handle(async ctx => {
-  const { message } = ctx;
-  if (message.text !== 'recap') {
-    await ctx.reply(`Stored: ${message.text}`);
+  const { input } = ctx;
+  if (input.text !== 'recap') {
+    await ctx.reply(`Stored: ${input.text}`);
     return;
   }
-  const first = ctx.history({ limit: 2 });
+  const first = demo.service.dmHistory(ctx.sender, { limit: 2 });
   assert.equal(first.coverage, 'local-only');
   assert.equal(first.complete, false);
   assert.ok(first.nextCursor);
-  const older = ctx.history({ limit: 2, cursor: first.nextCursor });
+  const older = demo.service.dmHistory(ctx.sender, { limit: 2, cursor: first.nextCursor });
   // Select the application's context explicitly, excluding the current request and self replies.
   const previous = [...first.messages, ...older.messages]
-    .filter(item => item.direction === 'incoming' && item.id !== message.id)
+    .filter(item => item.direction === 'incoming' && item.id !== input.id)
     .map(item => item.text);
   assert.ok(previous.includes('Remember apples'));
   await ctx.reply(`Local context: ${previous.join(', ')}`);

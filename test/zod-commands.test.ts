@@ -2,13 +2,14 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {z} from 'zod';
 import {npubEncode} from 'nostr-tools/nip19';
-import {Bot,InvalidArgsError,allowlist,requestTiming,nsecSigner,generateSecretKey,encodeCommandDefinition,type Input,type Context,type SessionStore,type InboundPolicy} from '../src/index.js';
+import {Bot,InvalidArgsError,allowlist,requestTiming,nsecSigner,generateSecretKey,encodeCommandDefinition,type Input,type Context,type SessionStore,type Middleware} from '../src/index.js';
 import {localNip17Identity} from '../src/protocol.js';
 import {MemoryRelay} from '../examples/_support.js';
 import {commentReply} from '../src/public-thread.js';
 const urls=['ws://zod-memory.invalid'];
-function fixture(mode:'nip17'|'nip4e'='nip17',inboundPolicy?:InboundPolicy,sessionStore?:SessionStore<Record<string,unknown>>){
- const network=new MemoryRelay(),user=new Bot({signer:nsecSigner(generateSecretKey()),transport:network.transport(),relays:urls,database:':memory:'}),bot=new Bot({mode,inboundPolicy,sessionStore,signer:nsecSigner(generateSecretKey()),transport:network.transport(),relays:urls,database:':memory:',publicInbox:{relays:urls}});
+function fixture(mode:'nip17'|'nip4e'='nip17',entryMiddleware?:Middleware,sessionStore?:SessionStore<Record<string,unknown>>){
+ const network=new MemoryRelay(),user=new Bot({signer:nsecSigner(generateSecretKey()),transport:network.transport(),relays:urls,database:':memory:'}),bot=new Bot({mode,sessionStore,signer:nsecSigner(generateSecretKey()),transport:network.transport(),relays:urls,database:':memory:',publicInbox:{relays:urls}});
+ if(entryMiddleware)bot.use(entryMiddleware);
  return{bot,user,network,async start(){await user.start();await bot.start();},async send(text:string){const result=await user.send(bot.pubkey,text);await bot.idle();await user.idle();return result;},async close(){await bot.close();await user.close();}};
 }
 test('Zod object order, metadata, required and enum choices produce unchanged 31992 wire tags',async()=>{
@@ -29,13 +30,13 @@ for(const mode of ['nip17','nip4e'] as const)test(`${mode}: middleware catches d
  const f=fixture(mode),errors:InvalidArgsError[]=[],responses:Input[]=[],operations:unknown[]=[];let handler=0,fallback=0,catchCalls=0;
  f.user.handle(ctx=>{responses.push(ctx.input);});f.bot.onError(error=>{operations.push(error);});f.bot.use(async(ctx,next)=>{assert.equal('args' in ctx,false);try{await next();}catch(error){if(!(error instanceof InvalidArgsError))throw error;errors.push(error);await ctx.reply('Usage: /count 1..10');}});
  f.bot.command({command:'count',scopes:['kind:14'],args:z.object({count:z.bigint().min(1n).max(10n)})},(ctx,args)=>{handler++;assert.equal(ctx.args,args);assert.equal(args.count,3n);});f.bot.handle(()=>{fallback++;});f.bot.catch(()=>{catchCalls++;});
- try{await f.start();const ids:string[]=[];for(const text of ['/count','/count invalid','/count 0','/count 11','/count 2 extra']){const result=await f.send(text);ids.push(result.id);assert.equal(f.bot.getMessageState(result.id),'done');}assert.equal(errors.length,5);assert.deepEqual(errors.map(error=>error.category),['decode','decode','validation','validation','decode']);assert.equal(responses.length,5);assert.equal(handler,0);assert.equal(fallback,0);assert.equal(catchCalls,0);assert.deepEqual(operations,[]);await f.bot.retryInbox({ids});assert.equal(errors.length,5);await f.send('/count 3');assert.equal(handler,1);
+ try{await f.start();for(const text of ['/count','/count invalid','/count 0','/count 11','/count 2 extra']){const result=await f.send(text);assert.equal(f.bot.getMessageState(result.id),'done');}assert.equal(errors.length,5);assert.deepEqual(errors.map(error=>error.category),['decode','decode','validation','validation','decode']);assert.equal(responses.length,5);assert.equal(handler,0);assert.equal(fallback,0);assert.equal(catchCalls,0);assert.deepEqual(operations,[]);await f.bot.stop();await f.bot.start();assert.equal(errors.length,5);await f.send('/count 3');assert.equal(handler,1);
  }finally{await f.close();}
 });
-test('bot.catch observes terminal errors once; no callback means silent completion; business errors remain retryable',async()=>{
+test('bot.catch observes terminal errors once; no callback means silent completion; business errors are not replayed',async()=>{
  const f=fixture();let errors=0,business=0;const raw=new Error('business error');f.bot.command({command:'need',scopes:['kind:14'],args:z.object({n:z.bigint()})},()=>{});f.bot.command({command:'fail',scopes:['kind:14']},()=>{business++;throw raw;});
- try{await f.start();const silent=await f.send('/need');assert.equal(f.bot.getMessageState(silent.id),'done');assert.equal(f.bot.history(f.user.pubkey).messages.filter(message=>message.direction==='outgoing').length,0);
- f.bot.catch(error=>{if(error instanceof InvalidArgsError){errors++;throw new Error('observer failure');}});const bad=await f.send('/need bad');assert.equal(errors,1);await f.bot.retryInbox();assert.equal(errors,1);assert.equal(f.bot.getMessageState(bad.id),'done');const failure=await f.send('/fail');assert.equal(f.bot.getMessageState(failure.id),'failed');await f.bot.retryInbox({ids:[failure.id]});assert.equal(business,2);
+ try{await f.start();const silent=await f.send('/need');assert.equal(f.bot.getMessageState(silent.id),'done');assert.equal(f.bot.dmHistory(f.user.pubkey).messages.filter(message=>message.direction==='outgoing').length,0);
+ f.bot.catch(error=>{if(error instanceof InvalidArgsError){errors++;throw new Error('observer failure');}});const bad=await f.send('/need bad');assert.equal(errors,1);await f.bot.stop();await f.bot.start();assert.equal(errors,1);assert.equal(f.bot.getMessageState(bad.id),'done');const failure=await f.send('/fail');assert.equal(f.bot.getMessageState(failure.id),'failed');await f.bot.stop();await f.bot.start();assert.equal(business,1);
  }finally{await f.close();}
 });
 for(const mode of ['nip17','nip4e'] as const)for(const kind of [1,1111])test(`${mode} public ${kind}: only a real scoped targeted invocation reaches validation; history and repeats stay silent`,async()=>{
@@ -43,13 +44,13 @@ for(const mode of ['nip17','nip4e'] as const)for(const kind of [1,1111])test(`${
  try{await f.start();const root=await author.sign({kind:1,created_at:1,tags:[],content:'root'});const make=async(text:string,tags:string[][]=[])=>kind===1?author.sign({kind:1,created_at:2,tags,content:text}):author.sign({...commentReply(root,{id:root.id,kind:'1',author:root.pubkey},text),tags:[...commentReply(root,{id:root.id,kind:'1',author:root.pubkey},text).tags,...tags]});
  for(const text of ['/need',`/need@${npubEncode(other.pubkey)}`,'text /need'])assert.equal(await f.bot.receive(await make(text),'live',{relay:urls[0]}),false);
  const target=`@nostr:${npubEncode(f.bot.pubkey)}`;const old=await make('/need'+target);assert.equal(await f.bot.receive(old,'history',{relay:urls[0]}),true);assert.equal(await f.bot.receive(old,'live',{relay:urls[0]}),false);assert.equal(errors,0);
- for(const content of ['/need'+target+' invalid','/need'+target+' 0']){const event=await make(content);assert.equal(await f.bot.receive(event,'live',{relay:urls[0]}),true);await f.bot.idle();assert.equal(await f.bot.receive(event,'live',{relay:urls[0]}),false);}assert.equal(errors,2);assert.equal(pre,2);assert.equal(handler,0);await f.bot.retryInbox();await f.bot.stop();await f.bot.start();assert.equal(errors,2);
+ for(const content of ['/need'+target+' invalid','/need'+target+' 0']){const event=await make(content);assert.equal(await f.bot.receive(event,'live',{relay:urls[0]}),true);await f.bot.idle();assert.equal(await f.bot.receive(event,'live',{relay:urls[0]}),false);}assert.equal(errors,2);assert.equal(pre,2);assert.equal(handler,0);await f.bot.stop();await f.bot.start();assert.equal(errors,2);
  }finally{await f.close();}
 });
 test('args-dependent authorization never grants malformed-input error response access; valid args reach authorize',async()=>{
  const f=fixture();let caught=0,authorized=0,handlers=0;f.bot.use(async(_ctx,next)=>{try{await next();}catch(error){caught++;throw error;}});f.bot.catch(async(_error,ctx)=>{caught++;await ctx.reply('must not expose');});
  f.bot.command({command:'secret',scopes:['kind:14','kind:1'],args:z.object({n:z.bigint().min(1n)})},()=>{handlers++;},{authorize:(_ctx,invocation)=>{authorized++;assert.equal(invocation.args.n,2n);return false;}});
- try{await f.start();for(const text of ['/secret','/secret nope','/secret 0','/secret 2'])await f.send(text);assert.equal(caught,0);assert.equal(authorized,1);assert.equal(handlers,0);const author=localNip17Identity();for(const suffix of ['',' nope',' 0']){const event=await author.sign({kind:1,created_at:1,tags:[],content:`/secret@${npubEncode(f.bot.pubkey)}${suffix}`});await f.bot.receive(event,'live',{relay:urls[0]});await f.bot.idle();}assert.equal(caught,0);assert.equal(f.bot.history(f.user.pubkey).messages.filter(message=>message.direction==='outgoing').length,0);
+ try{await f.start();for(const text of ['/secret','/secret nope','/secret 0','/secret 2'])await f.send(text);assert.equal(caught,0);assert.equal(authorized,1);assert.equal(handlers,0);const author=localNip17Identity();for(const suffix of ['',' nope',' 0']){const event=await author.sign({kind:1,created_at:1,tags:[],content:`/secret@${npubEncode(f.bot.pubkey)}${suffix}`});await f.bot.receive(event,'live',{relay:urls[0]});await f.bot.idle();}assert.equal(caught,0);assert.equal(f.bot.dmHistory(f.user.pubkey).messages.filter(message=>message.direction==='outgoing').length,0);
  }finally{await f.close();}
 });
 test('custom Zod issue messages/paths/inputs never escape through InvalidArgsError',async()=>{
@@ -57,18 +58,18 @@ test('custom Zod issue messages/paths/inputs never escape through InvalidArgsErr
  try{await f.start();await f.send('/safe SECRET_BODY');assert.equal(errors.length,1);assert.ok(!JSON.stringify(errors[0]).includes('SECRET'));assert.ok(!JSON.stringify(errors[0]).includes('PRIVATE'));assert.deepEqual(errors[0].issues,[{code:'custom',path:['body']}]);assert.ok(Object.isFrozen(errors[0].issues));}finally{await f.close();}
 });
 
-test('application-thrown InvalidArgsError is a business error and remains retryable',async()=>{
+test('application-thrown InvalidArgsError is a one-attempt business error',async()=>{
  const f=fixture();let middleware=0,handler=0;f.bot.use(async(ctx,next)=>{if(ctx.input.text==='/middleware'){middleware++;throw new InvalidArgsError('application','validation');}await next();});f.bot.handle(ctx=>{handler++;if(ctx.input.text==='/undefined')throw undefined;throw new InvalidArgsError('application','validation');});
- try{await f.start();const a=await f.send('/middleware'),b=await f.send('ordinary'),c=await f.send('/undefined');assert.equal(f.bot.getMessageState(c.id),'failed');assert.equal(f.bot.getMessageState(a.id),'failed');assert.equal(f.bot.getMessageState(b.id),'failed');await f.bot.retryInbox();assert.equal(middleware,2);assert.equal(handler,4);}finally{await f.close();}
+ try{await f.start();const a=await f.send('/middleware'),b=await f.send('ordinary'),c=await f.send('/undefined');assert.equal(f.bot.getMessageState(c.id),'failed');assert.equal(f.bot.getMessageState(a.id),undefined);assert.equal(f.bot.getMessageState(b.id),'failed');await f.bot.stop();await f.bot.start();assert.equal(middleware,1);assert.equal(handler,2);}finally{await f.close();}
 });
 
 test('entry allowlist denial precedes argument validation and every error-response hook',async()=>{
  const f=fixture('nip17',allowlist([]));let validation=0,middleware=0,errors=0;
  f.bot.command({command:'need',scopes:['kind:14','kind:1'],args:z.object({n:z.bigint().refine(()=>{validation++;return false;})})},()=>assert.fail());f.bot.use(async(_ctx,next)=>{middleware++;await next();});f.bot.catch(()=>{errors++;});
- try{await f.start();await f.send('/need 0');const author=localNip17Identity(),event=await author.sign({kind:1,created_at:1,tags:[],content:`/need@${npubEncode(f.bot.pubkey)} 0`});assert.equal(await f.bot.receive(event,'live',{relay:urls[0]}),false);await f.bot.idle();assert.deepEqual([validation,middleware,errors],[0,0,0]);assert.equal(f.bot.history(f.user.pubkey).messages.length,0);}finally{await f.close();}
+ try{await f.start();await f.send('/need 0');const author=localNip17Identity(),event=await author.sign({kind:1,created_at:1,tags:[],content:`/need@${npubEncode(f.bot.pubkey)} 0`});assert.equal(await f.bot.receive(event,'live',{relay:urls[0]}),true);await f.bot.idle();assert.deepEqual([validation,middleware,errors],[0,0,0]);assert.equal(f.bot.dmHistory(f.user.pubkey).messages.length,0);}finally{await f.close();}
 });
 
-for(const mode of ['nip17','nip4e'] as const)for(const kind of [14,1,1111])test(`${mode}/${kind}: pre-authorization validator exceptions bypass reply hooks but stay failed/retryable`,async()=>{
+for(const mode of ['nip17','nip4e'] as const)for(const kind of [14,1,1111])test(`${mode}/${kind}: pre-authorization validator exceptions bypass reply hooks but are never replayed`,async()=>{
  let saves=0,validators=0,middlewareCaught=0,botCaught=0,authorized=0,handled=0,after=0;const original=new Error('private validator failure'),operations:unknown[]=[];
  const f=fixture(mode,undefined,{get:()=>undefined,set:()=>{saves++;}});
  const metrics:{outcome:string;durationMs:number}[]=[];f.bot.use(requestTiming({onTiming:metric=>{metrics.push(metric);}}));
@@ -79,7 +80,7 @@ for(const mode of ['nip17','nip4e'] as const)for(const kind of [14,1,1111])test(
   if(kind===14)id=(await f.send('/secure 2')).id;
   else{const author=localNip17Identity(),text=`/secure@${npubEncode(f.bot.pubkey)} 2`,root=await author.sign({kind:1,created_at:1,tags:[],content:'root'});const event=await author.sign(kind===1?{kind:1,created_at:2,tags:[],content:text}:commentReply(root,{id:root.id,kind:'1',author:root.pubkey},text));id=event.id;assert.equal(await f.bot.receive(event,'live',{relay:urls[0]}),true);await f.bot.idle();}
   await new Promise(resolve=>setImmediate(resolve));assert.deepEqual([validators,middlewareCaught,botCaught,authorized,handled,after,saves],[1,0,0,0,0,1,0]);assert.deepEqual(operations,[original]);assert.deepEqual(metrics.map(metric=>metric.outcome),['failure']);assert.deepEqual(Object.keys(metrics[0]),['durationMs','outcome']);if(kind===14)assert.equal(f.bot.getMessageState(id),'failed');
-  await f.bot.retryInbox({ids:[id]});await new Promise(resolve=>setImmediate(resolve));assert.deepEqual([validators,middlewareCaught,botCaught,authorized,handled,after,saves],[2,0,0,0,0,2,0]);assert.deepEqual(operations,[original,original]);assert.deepEqual(metrics.map(metric=>metric.outcome),['failure','failure']);
+  await f.bot.stop();await f.bot.start();await new Promise(resolve=>setImmediate(resolve));assert.deepEqual([validators,middlewareCaught,botCaught,authorized,handled,after,saves],[1,0,0,0,0,1,0]);assert.deepEqual(operations,[original]);assert.deepEqual(metrics.map(metric=>metric.outcome),['failure']);
  }finally{await f.close();}
 });
 
@@ -89,7 +90,9 @@ for(const mode of ['nip17','nip4e'] as const)for(const kind of [14,1,1111])test(
  f.bot.use(async(ctx,next)=>{originalContext=ctx;Object.defineProperty(ctx,'applicationGetter',{get:()=> 'preserved',enumerable:true});Object.freeze(ctx);assert.equal('args' in ctx,false);await next();assert.equal('args' in ctx,false);});
  f.bot.command({command:'view',scopes:[`kind:${kind}`],args:z.object({n:z.bigint()})},async(ctx,args)=>{
   handlers++;assert.notEqual(ctx,originalContext);assert.equal(ctx.args,args);assert.equal(args.n,2n);assert.equal(ctx.session,originalContext!.session);assert.equal(ctx.reply,originalContext!.reply);assert.equal(Reflect.get(ctx,'applicationGetter'),'preserved');assert.equal(Object.getOwnPropertyDescriptor(ctx,'applicationGetter')!.get,Object.getOwnPropertyDescriptor(originalContext!,'applicationGetter')!.get);
-  if(kind===14)assert.equal(ctx.message.rumor.id,ctx.input.id);else{assert.throws(()=>ctx.message,/only available/);assert.equal(Object.getOwnPropertyDescriptor(ctx,'message')!.get,Object.getOwnPropertyDescriptor(originalContext!,'message')!.get);}
+  assert.equal(ctx.input.event.id,ctx.input.id);
+  for(const key of ['input','reply','replyFile','thread','react'])assert.deepEqual(Object.getOwnPropertyDescriptor(ctx,key),Object.getOwnPropertyDescriptor(originalContext!,key));
+  for(const removed of ['message','history','getMessage'])assert.equal(removed in ctx,false);
   ctx.session.setItem('shared',args.n);await ctx.reply('valid');
  });
  try{await f.start();if(kind===14)await f.send('/view 2');else{const author=localNip17Identity(),text=`/view@${npubEncode(f.bot.pubkey)} 2`,root=await author.sign({kind:1,created_at:1,tags:[],content:'root'});const event=await author.sign(kind===1?{kind:1,created_at:2,tags:[],content:text}:commentReply(root,{id:root.id,kind:'1',author:root.pubkey},text));await f.bot.receive(event,'live',{relay:urls[0]});await f.bot.idle();}assert.equal(handlers,1);assert.equal(saves,1);}finally{await f.close();}

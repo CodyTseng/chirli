@@ -127,7 +127,7 @@ test('replaying an uncertain insert cannot reset an already processed message', 
   } finally { store.close(); storage.database.close(); }
 });
 
-test('state persistence failure leaves custom messages retryable rather than falsely completed', async () => {
+test('state persistence failure does not let a duplicate reexecute a custom-storage message', async () => {
   const relay = new MemoryRelay(), storage = new SQLMessages(), sender = localNip17Identity();
   const signer = api.nsecSigner(api.generateSecretKey());
   const client = await Client.create({ signer, database: ':memory:', messageStorage: storage,
@@ -145,13 +145,11 @@ test('state persistence failure leaves custom messages retryable rather than fal
     assert.equal(handled, 1);
     assert.ok(errors.length > 0);
     storage.failing = false;
-    await client.receive(event, 'live'); await client.idle();
-    assert.equal(handled, 1, 'duplicate processing records require explicit retry');
-    client.handle(() => { storage.failing = false; });
-    await client.retryInbox();
-    assert.equal(handled, 2);
-    assert.equal(client.getMessageState(draft.id), 'done');
-    assert.equal(storage.query((Reflect.get(client, 'coreStore') as Store).account, { id: draft.id })[0].state, 'done');
+    assert.equal(await client.receive(event, 'live'), false); await client.idle();
+    await client.stop(); await client.start(); await client.idle();
+    assert.equal(handled, 1, 'duplicate or restart must never reexecute a claimed input');
+    assert.equal(client.getMessageState(draft.id), 'processing');
+    assert.equal(storage.query((Reflect.get(client, 'coreStore') as Store).account, { id: draft.id })[0].state, 'processing');
   } finally { await client.close(); storage.database.close(); await signer.close(); }
 });
 

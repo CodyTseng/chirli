@@ -36,7 +36,7 @@ export interface MessagingProtocol {
   readonly envelope: EnvelopePolicy;
   prepare(): Promise<void>;
   resolve(peer: string, store: Store, transport: Transport, discovery: string[], force?: boolean): Promise<PeerMetadata>;
-  recipients(peer: string, store: Store, transport: Transport, discovery: string[]): Promise<Recipient[]>;
+  recipients(peer: string, store: Store, transport: Transport, discovery: string[], input?: DecodedEnvelope): Promise<Recipient[]>;
   remember(decoded: DecodedEnvelope, store: Store): void;
 }
 
@@ -54,14 +54,21 @@ export function protocolScope(mode: ProtocolMode, identity: Identity) {
 /** Mode selects the outgoing key, while authenticated peer evidence selects the wire profile. */
 export function createMessagingProtocol(mode: ProtocolMode, identity: Identity, keys: EncryptionKeys, metadata?: MessagingMetadata, ownRelays: string[] = []): MessagingProtocol {
   const scope = mode === 'nip17' ? `nip17:${identity.pubkey}` : identity.pubkey;
-  const resolved = (peer: string, store: Store, events: Awaited<ReturnType<typeof messagingMetadata>>): PeerMetadata => {
+  const resolved = (peer: string, store: Store, events: Awaited<ReturnType<typeof messagingMetadata>>, input?: DecodedEnvelope): PeerMetadata => {
     recordPeerMetadata(store, events);
     const evidence = store.evidence(peer), declaration = store.declaration(peer);
-    if (declaration && !evidence) {
+    // Middleware can reply using authenticated, in-flight seal evidence without
+    // admitting the input body or its peer evidence to durable storage.
+    const incoming = input?.rumor.pubkey === peer ? input : undefined;
+    const incomingTime = incoming ? timestamp(incoming.rumor) : 0;
+    const preferIncoming = incoming && (!evidence || incomingTime > evidence.time ||
+      (incomingTime === evidence.time && incoming.rumor.id < evidence.id));
+    const key = preferIncoming ? incoming.encryptionPubkey : evidence?.key;
+    if (declaration && !key) {
       throw new Error('No valid encryption key in peer NIP-4E declaration');
     }
     return {
-      encryptionPubkey: evidence?.key ?? peer,
+      encryptionPubkey: key ?? peer,
       relays: (() => {
         try {
           return standardRelays(events);
@@ -73,7 +80,7 @@ export function createMessagingProtocol(mode: ProtocolMode, identity: Identity, 
           throw new Error('No DM relay fallback configured');
         }
       })(),
-      envelope: store.isSplitPeer(peer) ? (mode === 'nip4e' ? splitEnvelope : identitySplitEnvelope) : standardEnvelope
+      envelope: (store.isSplitPeer(peer) || incoming?.seal.tags.some(tag => tag[0] === 'n')) ? (mode === 'nip4e' ? splitEnvelope : identitySplitEnvelope) : standardEnvelope
     };
   };
   const protocol: MessagingProtocol = {
@@ -84,7 +91,7 @@ export function createMessagingProtocol(mode: ProtocolMode, identity: Identity, 
     async resolve(peer, store, transport, discovery, force = false) {
       return resolved(peer, store, await (metadata ? metadata.read(peer, [10044, 10050], force) : messagingMetadata(peer, [10044, 10050], transport, discovery)));
     },
-    async recipients(peer, store, transport, discovery) {
+    async recipients(peer, store, transport, discovery, input) {
       // Read independent snapshots concurrently; apply peer evidence only after own-key checks pass.
       const [, selfEvents, peerEvents] = await Promise.all([
         keys.prepare(), metadata ? metadata.read(identity.pubkey, [10050]) : messagingMetadata(identity.pubkey, [10050], transport, discovery),
@@ -104,7 +111,7 @@ export function createMessagingProtocol(mode: ProtocolMode, identity: Identity, 
         envelope: mode === 'nip4e' ? splitEnvelope : standardEnvelope
       };
       return peerEvents ? [{
-          pubkey: peer, ...resolved(peer, store, peerEvents)
+          pubkey: peer, ...resolved(peer, store, peerEvents, input)
         }, self] : [self];
     },
     remember({ rumor, seal, encryptionPubkey }, store) {

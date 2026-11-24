@@ -69,7 +69,9 @@ for(const [name,Adapter] of [['SQLite',SQLiteStorage],['custom JSON',JsonStorage
     client = new Client({ ...options, transport: relay.transport() });
     assert.equal(client.encryptionKeys().currentPublicKey, current);
     assert.equal(client.store.session<{ label: string }>(peer.pubkey)?.label, 'plaintext session');
-    assert.equal(await client.receive(await wrap(rumor(peer.pubkey, identity.pubkey, 'plaintext history'), peer, identity.pubkey, old), 'history'), true);
+    await client.start();
+    assert.equal(await client.receive(await wrap(rumor(peer.pubkey, identity.pubkey, 'plaintext history'), peer, identity.pubkey, old), 'live'), true);
+    await client.idle();
     assert.ok(messageStorage.query(client.store.account)[0].payload.includes('plaintext history'));
   } finally {
     await client.close();

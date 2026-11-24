@@ -1,7 +1,6 @@
 import { encryptAttachment, normalizeBlossomDownloadOrigins, normalizeBlossomServers, snapshotFile, uploadFile, type ReplyFileOptions, type SendFileOptions, type UploadFileOptions, type UploadFileResult } from './blossom.js';
 import { PublicInbox, type PublicInboxOptions, type PublicInput } from './public-inbox.js';
 import { inputOf, threadLimit, type ThreadOptions, type ThreadResult } from './public-thread.js';
-import type { InboundPolicy } from './inbound-policy.js';
 import {getEventHash, type Event} from 'nostr-tools';
 import { identityFromSigner } from './signers.js';
 import type { Signer } from './signer.js';
@@ -26,6 +25,12 @@ import type { MessageState } from './storage.js';
 import type { MessageStorage } from './message-storage.js';
 import { EncryptionKeys, type AnnounceOptions, type KeyRotationOptions } from './keys.js';
 
+export function rejectRemovedIntakeOptions(options: object): void {
+  if ('inboundPolicy' in options || 'guards' in options || 'allowlist' in options) {
+    throw new TypeError('Use bot.use(allowlist(pubkeys)) or custom middleware instead of inboundPolicy, guards or the allowlist option');
+  }
+}
+
 export interface SendResult {
   id: string;
   status: 'relay-accepted' | 'pending';
@@ -44,8 +49,6 @@ export interface CommonClientOptions {
   publicInbox?: PublicInboxOptions;
   metadataCache?: false | MetadataCacheOptions;
   keySync?: false | KeySyncOptions;
-  /** Optional synchronous gate over the verified external sender, before persistence. */
-  inboundPolicy?: InboundPolicy;
   nip4eCompatibility?: boolean;
   reconnect?: false | ReconnectOptions;
   recovery?: false | RecoveryOptions;
@@ -84,7 +87,8 @@ export type ClientOptions = ClientConfiguration & {
 
 export type CommandRegistration = (() => void) & { active(): boolean };
 
-export type MessageHandler = (message: Message) => void | Promise<void>;
+type AdmitMessage = () => void;
+export type MessageHandler = (message: Message, admit: AdmitMessage, anchor: DecodedEnvelope) => void | Promise<void>;
 
 export type MessageObserver = (message: Readonly<Message>) => void | Promise<void>;
 
@@ -121,17 +125,15 @@ export class Client {
 
   readonly mode: ProtocolMode;
   readonly nip4eCompatibility: boolean;
-  private readonly inboundPolicy?: InboundPolicy;
   private keys: EncryptionKeys;
   private rotationTimer?: ReturnType<typeof setTimeout>;
   private protocol: MessagingProtocol;
   private transport: Transport;
   private ownsTransport: boolean;
   private observers = new Set<MessageObserver>();
-  private handlers = new Set<MessageHandler>();
+  private handlers = new Map<MessageHandler, boolean>();
   private errors = new Set<ErrorHandler>();
   private queues = new Map<string, Promise<void>>();
-  private scheduled = new Set<string>();
   private intake: Promise<void> = Promise.resolve();
   private sub?: InboxSubscription;
   private running = false;
@@ -151,6 +153,7 @@ export class Client {
 
   /** Resolve the account asynchronously, regardless of local or remote signing. */
   static async create(options: ClientOptions): Promise<Client> {
+    rejectRemovedIntakeOptions(options);
     const { signer, ...configuration } = options;
     if ('identity' in options) {
       throw new TypeError('Client.create accepts signer, not identity');
@@ -165,6 +168,7 @@ export class Client {
   }
 
   private constructor(input: ClientConfiguration & { identity: Identity }) {
+    rejectRemovedIntakeOptions(input);
     const { identity, ...configuration } = input;
     const roles = relayRoles(configuration);
     this.blossomServers = normalizeBlossomServers(configuration.blossomServers);
@@ -178,10 +182,6 @@ export class Client {
     if (!hexKey(identity.pubkey) || !options.relays.length) {
       throw new Error('Identity and at least one relay required');
     }
-    if (options.inboundPolicy !== undefined && typeof options.inboundPolicy !== 'function') {
-      throw new TypeError('inboundPolicy must be a synchronous identity policy');
-    }
-    this.inboundPolicy = options.inboundPolicy;
     this.account = {
       ...identity, oldEncryptionKeys: identity.oldEncryptionKeys?.map(key => new Uint8Array(key))
     };
@@ -221,7 +221,7 @@ export class Client {
       }
       this.protocol = createMessagingProtocol(this.mode, this.account, this.keys, this.metadata, this.options.dmRelays);
       this.commands = new CommandCatalog(this.account, this.coreStore, this.transport, this.options.writeRelays);
-      if(options.publicInbox)this.publicInbox=new PublicInbox(this.account,this.coreStore,this.transport,options.publicInbox,options.writeRelays,options.reconnect,()=>this.publicCommandDefinitions(),sender=>this.allowsSender(sender),async input=>{
+      if(options.publicInbox)this.publicInbox=new PublicInbox(this.account,this.coreStore,this.transport,options.publicInbox,options.writeRelays,options.reconnect,()=>this.publicCommandDefinitions(),async input=>{
         const context={active:true};try{await this.handlerContext.run(context,async()=>{for(const handler of this.publicHandlers)await handler(input);});}finally{context.active=false;}
       },error=>this.report(error));
 
@@ -237,10 +237,10 @@ export class Client {
     }
   }
 
-  /** Durable processing group: failures keep the message retryable. Register before start. */
-  handle(handler: MessageHandler): () => void {
+  /** Internal Bot handlers manage history admission through the middleware chain. */
+  handle(handler: MessageHandler, managesAdmission = false): () => void {
     this.assertOpen();
-    this.handlers.add(handler);
+    this.handlers.set(handler, managesAdmission);
     return () => this.handlers.delete(handler);
   }
 
@@ -309,7 +309,7 @@ export class Client {
       if (!current()) {
         return;
       }
-      // Complete publication before starting business subscriptions or replaying handlers.
+      // Complete publication before starting business subscriptions.
       if (publishMetadata) await this.publishKeyMetadata();
       else await this.protocol.prepare();
       if (!current()) return;
@@ -320,9 +320,6 @@ export class Client {
       if (publishMetadata) await this.publishMetadata();
       if (!current()) return;
 
-      for (const m of this.coreStore.pending()) {
-        this.enqueue(m);
-      }
       this.sub = new InboxSubscription({
         transport: this.transport,
         store: this.coreStore,
@@ -366,16 +363,29 @@ export class Client {
 
   /** Verify and persist a relay event using the same asynchronous signer capabilities. */
   receive(event: Event, source: 'live' | 'history', metadata?: IntakeMetadata): Promise<boolean> {
+    if (!this.running || this.closing) return Promise.resolve(false);
     this.assertOpen();
-    if([1,1111].includes(event.kind))return Promise.resolve().then(()=>this.publicInbox?.receive(event,source,metadata?.relay)??false);
+    const generation = this.generation;
+    const current = () => this.running && this.generation === generation && !this.closing;
+    if ([1,1111].includes(event.kind)) {
+      return Promise.resolve().then(() => current() ? this.publicInbox?.receive(event,source,metadata?.relay) ?? false : false);
+    }
     const boundary=localReadBoundary(event);
     const snapshot = metadata ? {
       relay: metadata.relay
     } : undefined;
-    // Preserve wire intake order even when remote decrypt calls complete at different speeds.
+    // Preserve wire intake order; stop fences any decryption that was not yet admitted.
     const task = this.intake.then(async () => {
-      const decoded = await unwrapAsync(event, this.account, this.protocol.envelope);
-      return decoded ? this.accept(decoded,source==='history'&&boundary!==undefined&&decoded.rumor.created_at>boundary?'live':source,snapshot) : false;
+      if (!current()) return false;
+      try {
+        const decoded = await unwrapAsync(event, this.account, this.protocol.envelope, current);
+        return current() && decoded
+          ? this.accept(decoded,source==='history'&&boundary!==undefined&&decoded.rumor.created_at>boundary?'live':source,snapshot)
+          : false;
+      } catch (error) {
+        if (!current()) return false;
+        throw error;
+      }
     });
     this.intake = task.then(() => {
     }, () => {
@@ -385,10 +395,9 @@ export class Client {
 
   private accept(decoded: DecodedEnvelope, source: 'live' | 'history', metadata?: IntakeMetadata): boolean {
     const r = decoded.rumor, own = r.pubkey === this.account.pubkey;
-    // decode has verified both signatures, rumor hash and equality with the signed seal author.
-    if (!own && !this.allowsSender(r.pubkey)) {
-      return false;
-    }
+    // Only verified canonical rumor IDs can claim an external input.
+    if (!own && !this.coreStore.claimInput(r.id)) return false;
+    if (!own && source !== 'live') return true; // Passive recovery: ID only.
     const replyTo = replyTarget(r);
     const message: Message = {
       id: r.id,
@@ -404,79 +413,64 @@ export class Client {
         relay: metadata.relay
       } : {})
     };
+    if (!own) {
+      this.enqueue(message, decoded);
+      return true;
+    }
     let inserted = false;
     this.coreStore.transaction(() => {
       this.protocol.remember(decoded, this.coreStore);
       inserted = this.coreStore.insert(message);
     });
-    if (source === 'live' && !own && this.running && (inserted || this.coreStore.messageState(message.id) === 'pending')) {
-      this.enqueue(message);
-    }
-    if (inserted && source === 'live' && !own && this.running) {
-      // Notify once per receipt, using detached copies outside the durable processing group.
-      for (const observer of this.observers) {
-        try {
-          void Promise.resolve(observer(structuredClone(message))).catch(error => this.report(error, structuredClone(message)));
-        }
-        catch (error) {
-          this.report(error, structuredClone(message));
-        }
-      }
-    }
     return inserted;
   }
 
-  private allowsSender(identity: string) {
-    const policy = this.inboundPolicy;
-    if (policy === undefined) return true;
-    const accepted = policy(identity);
-    if (typeof accepted !== 'boolean') {
-      // JavaScript callers cannot accidentally authorize with a Promise or truthy value.
-      void Promise.resolve(accepted).catch(() => {});
-      throw new TypeError('inboundPolicy must return a boolean synchronously');
-    }
-    return accepted;
-  }
-
-  private enqueue(message: Message) {
-    // Encrypted pending records were authenticated on receipt. Recheck the saved identity,
-    // including sender/rumor consistency, before any listener, middleware or session access.
-    if (message.direction !== 'incoming' || message.sender !== message.rumor.pubkey || message.sender === this.account.pubkey || !this.allowsSender(message.rumor.pubkey)) {
-      this.coreStore.state(message.id, 'done');
-      return; // Consume previously accepted work revoked by new configuration.
-    }
-    if (this.scheduled.has(message.id)) {
-      return;
-    }
-    this.scheduled.add(message.id);
+  private enqueue(message: Message, decoded: DecodedEnvelope) {
     const previous = this.queues.get(message.conversation) ?? Promise.resolve();
-    const next = previous.catch(() => {
-    }).then(async () => {
-      this.coreStore.state(message.id, 'processing');
+    const next = previous.catch(() => {}).then(async () => {
+      let admitted = false;
+      const admit = () => {
+        if (admitted) return;
+        this.coreStore.transaction(() => {
+          this.protocol.remember(decoded, this.coreStore);
+          this.coreStore.insert(message, 'processing');
+        });
+        admitted = true;
+        for (const observer of this.observers) {
+          try {
+            void Promise.resolve(observer(structuredClone(message))).catch(error => this.report(error, structuredClone(message)));
+          } catch (error) {
+            this.report(error, structuredClone(message));
+          }
+        }
+      };
+      const context = { active: true };
       try {
-        const context = {
-          active: true
-        };
-        try {
-          await this.handlerContext.run(context, async () => {
-            for (const handler of this.handlers) {
-              await handler(message);
+        await this.handlerContext.run(context, async () => {
+          // Raw internal listeners are not a second route around Bot middleware.
+          const handlers = [...this.handlers];
+          const managed = handlers.filter(([, managesAdmission]) => managesAdmission);
+          for (const [handler] of managed) await handler(structuredClone(message), admit, decoded);
+          if (!managed.length) admit();
+          if (admitted) {
+            for (const [handler, managesAdmission] of handlers) {
+              if (!managesAdmission) await handler(structuredClone(message), admit, decoded);
             }
-          });
+          }
+        });
+        if (admitted) this.coreStore.state(message.id, 'done');
+      } catch (error) {
+        try {
+          if (admitted) this.coreStore.state(message.id, 'failed');
+        } finally {
+          this.report(error, message);
         }
-        finally {
-          context.active = false;
-        }
-        this.coreStore.state(message.id, 'done');
-      }
-      catch (e) {
-        this.coreStore.state(message.id, 'failed');
-        this.report(e, message);
+      } finally {
+        context.active = false;
       }
     }).catch(error => this.report(error, message));
     this.queues.set(message.conversation, next);
     void next.finally(() => {
-      this.scheduled.delete(message.id);
       if (this.queues.get(message.conversation) === next) {
         this.queues.delete(message.conversation);
       }
@@ -498,25 +492,6 @@ export class Client {
         return;
       }
     }
-  }
-
-  async retryInbox(options: {
-    ids?: readonly string[];
-  } = {}) {
-    this.assertOpen();
-    this.assertOutsideHandler('retryInbox()');
-    if (options.ids && (!Array.isArray(options.ids) || !options.ids.every(hexKey))) {
-      throw new TypeError('Invalid retry message IDs');
-    }
-    const ids = options.ids ? new Set(options.ids) : undefined;
-    await this.idle();
-    for (const message of this.coreStore.pending()) {
-      if (!ids || ids.has(message.id)) {
-        this.enqueue(message);
-      }
-    }
-    this.publicInbox?.retry(ids);
-    await this.idle();
   }
 
   getMessage(id: string, peer?: string): Message | undefined {
@@ -719,9 +694,16 @@ export class Client {
     if ('rumor' in target) {
       return this.sendFile(target.conversation, data, { ...options, replyTo: target.id });
     }
+    return this.replyPublicFile(target, data, options);
+  }
+
+  /** Verified public context retains its source relay without journaling the input. */
+  async replyPublicFile(target: PublicInput, data: Uint8Array, options: ReplyFileOptions = {}): Promise<SendResult> {
+    this.assertOpen();
+    if (!this.publicInbox) throw new Error('Public inbox is not configured');
     const { mimeType } = options;
     const bytes = snapshotFile(data);
-    return this.publicInbox!.replyFile(target, async () => {
+    return this.publicInbox.replyFile(target, async () => {
       const result = await this.uploadFile(bytes, { mimeType });
       this.assertOpen();
       return result;
@@ -978,7 +960,7 @@ export class Client {
     return discoverCommandCatalog(this.transport, options);
   }
 
-  async send(peer: string, text: string, { replyTo }: SendOptions = {}): Promise<SendResult> {
+  async send(peer: string, text: string, { replyTo }: SendOptions = {}, input?: DecodedEnvelope): Promise<SendResult> {
     this.assertOpen();
     if (typeof text !== 'string' || !text.length) {
       throw new Error('Nonempty text required');
@@ -998,7 +980,7 @@ export class Client {
       rumor: r,
       ...(replyTo === undefined ? {} : { replyTo }),
     };
-    return this.publishPrivate(peer, r, message);
+    return this.publishPrivate(peer, r, message, input);
   }
 
   async uploadFile(data: Uint8Array, options?: UploadFileOptions): Promise<UploadFileResult> {
@@ -1006,7 +988,7 @@ export class Client {
     return uploadFile(this.account, this.blossomServers, this.blossomDownloadOrigins, data, options);
   }
 
-  async sendFile(peer: string, data: Uint8Array, options: SendFileOptions = {}): Promise<SendResult> {
+  async sendFile(peer: string, data: Uint8Array, options: SendFileOptions = {}, input?: DecodedEnvelope): Promise<SendResult> {
     this.assertOpen();
     if (!this.blossomServers.length) throw new Error('Configure blossomServers before sending files');
     if (!hexKey(peer)) throw new TypeError('Expected a lowercase hex recipient pubkey');
@@ -1022,23 +1004,33 @@ export class Client {
       id: r.id, sender: r.pubkey, conversation: peer, text: '',
       timestamp: timestamp(r), source: 'live', direction: 'outgoing', rumor: r,
       ...(replyTo === undefined ? {} : { replyTo }),
-    });
+    }, input);
   }
 
-  async react(id: string, reaction = '+', peer?: string): Promise<SendResult> {
+  async react(event: Event | Rumor, reaction?: string): Promise<SendResult> {
+    this.assertOpen();
+    const target = this.authenticatedInput(event);
+    return 'rumor' in target ? this.reactToMessage(target, reaction) : this.reactPublic(target, reaction);
+  }
+
+  async reactPublic(input: PublicInput, reaction?: string): Promise<SendResult> {
+    this.assertOpen();
+    if (!this.publicInbox) throw new Error('Public inbox is not configured');
+    return this.publicInbox.react(input, reaction);
+  }
+
+  /** The Bot may use a verified incoming anchor before admitting it to history. */
+  async reactToMessage(target: Message, reaction = '+', input?: DecodedEnvelope): Promise<SendResult> {
     this.assertOpen();
     if (typeof reaction !== 'string' || !reaction.trim()) {
       throw new TypeError('Nonempty reaction required');
     }
-    const target = this.getMessage(id, peer);
-    if (!target) throw new Error('Reaction target was not found in local message history');
-
     const r = reactionRumor(this.account.pubkey, target.conversation, target.id, reaction);
-    return this.publishPrivate(target.conversation, r);
+    return this.publishPrivate(target.conversation, r, undefined, input);
   }
 
-  private async publishPrivate(peer: string, r: Rumor, message?: Message): Promise<SendResult> {
-    const recipients = await this.protocol.recipients(peer, this.coreStore, this.transport, this.metadataLookupRelays);
+  private async publishPrivate(peer: string, r: Rumor, message?: Message, input?: DecodedEnvelope): Promise<SendResult> {
+    const recipients = await this.protocol.recipients(peer, this.coreStore, this.transport, this.metadataLookupRelays, input);
     const sendingIdentity = {
       ...this.account, oldEncryptionKeys: this.account.oldEncryptionKeys?.slice()
     };

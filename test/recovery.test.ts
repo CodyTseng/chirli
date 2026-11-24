@@ -11,7 +11,7 @@ import { generateSecretKey, getPublicKey, WebSocketTransport, type ProtocolMode,
 import { BotHandlers as Bot } from '../src/bot-handlers.js';
 import { rumor } from '../src/protocol.js';
 import { testRelay } from './relay.js';
-async function until(check: () => boolean) { for (let i=0;i<200;i++) { if(check())return; await new Promise(resolve=>setTimeout(resolve,10)); } assert.fail('condition timeout'); }
+async function until(check: () => boolean | Promise<boolean>) { for (let i=0;i<200;i++) { if(await check())return; await new Promise(resolve=>setTimeout(resolve,10)); } assert.fail('condition timeout'); }
 async function envelope(sender: Identity, receiver: Identity, text: string, time: number, mode: ProtocolMode = 'nip4e') {
   const encrypt = (value: unknown, key: Uint8Array, peer: string) => nip44.v2.encrypt(JSON.stringify(value), nip44.v2.utils.getConversationKey(key,peer));
   const r = rumor(sender.pubkey,receiver.pubkey,text,time*1000);
@@ -30,12 +30,14 @@ for(const mode of ['nip4e','nip17'] as const) {
       await bot.start();
       await wire.publish([relay.url],await envelope(sender,receiver,'/ping',now,mode));await until(()=>commands===1);
       relay.pauseReads(true);relay.disconnect();await until(()=>errors.length>0);
-      for(let i=0;i<6;i++)await wire.publish([relay.url],await envelope(sender,receiver,`/ping missed-${i}`,now-10-i,mode));
+      const missed:Event[]=[];
+      for(let i=0;i<6;i++){const event=await envelope(sender,receiver,`/ping missed-${i}`,now-10-i,mode);missed.push(event);await wire.publish([relay.url],event);}
       relay.pauseReads(false);
-      await until(()=>client.history(sender.pubkey).messages.length===7);await client.idle();assert.equal(commands,1);
-      const [sync]=await client.syncHistory();assert.equal(sync.status,'window-complete');assert.ok(sync.pages>1);
+      await until(()=>relay.connections>=3);
+      await until(async()=>{const [sync]=await client.syncHistory();if(sync.status==='aborted')return false;assert.equal(sync.status,'window-complete');assert.ok(sync.pages>1);return true;});await client.idle();
+      assert.equal(commands,1);for(const event of missed)assert.equal(await client.receive(event,'live'),false,'recovered input IDs are claimed');
       await wire.publish([relay.url],await envelope(sender,receiver,'/ping',now+1,mode));await until(()=>commands===2);await client.idle();
-      assert.equal(client.history(sender.pubkey).messages.filter(message=>message.text.includes('missed')).every(message=>message.source==='history'),true);
+      assert.deepEqual(client.history(sender.pubkey).messages.map(message=>message.text),['/ping','/ping']);
       await bot.stop();const attempts=relay.connections;relay.disconnect();await new Promise(resolve=>setTimeout(resolve,100));assert.equal(relay.connections,attempts,'stop cancels reconnect demand');
     }finally{await bot.client.close(); bot.dispose();wire.close();await relay.close();}
   });
@@ -58,10 +60,10 @@ test('persisted recovery checkpoint covers an older offline gap and advances onl
   const options={mode:'nip4e' as const,identity:receiver,relays:[relay.url],database:join(dir,'inbox.sqlite'),storageKey:key,historyLimit:0};let client=new Client(options);
   try{
     client.store.saveCheckpoint(relay.url,now-5*86400);await client.close();
-    await wire.publish([relay.url],await envelope(sender,receiver,'older gap',now-4*86400));
+    const older=await envelope(sender,receiver,'older gap',now-4*86400);await wire.publish([relay.url],older);
     client=new Client(options);let calls=0;client.handle(()=>{calls++;});await client.start();await client.idle();
-    assert.equal(client.history(sender.pubkey).messages[0].text,'older gap');assert.equal(calls,0);assert.ok(client.store.checkpoint(relay.url)!>=now);
-    await client.close();client=new Client(options);assert.ok(client.store.checkpoint(relay.url)!>=now);
+    assert.deepEqual(client.history(sender.pubkey).messages,[]);assert.equal(calls,0);assert.ok(client.store.checkpoint(relay.url)!>=now);
+    await client.close();client=new Client(options);assert.ok(client.store.checkpoint(relay.url)!>=now);await client.start();assert.equal(await client.receive(older,'live'),false);
   }finally{await client.close();wire.close();await relay.close();await rm(dir,{recursive:true,force:true});}
 });
 

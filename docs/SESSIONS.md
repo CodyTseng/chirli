@@ -35,7 +35,7 @@ The type argument checks keys and value types. Supply a default where you read a
 | `ctx.session.removeItem(key)` | Stage deletion of one key. |
 | `ctx.session.clear()` | Reset the current conversation. Later writes in the same message become the new snapshot. |
 
-Middleware and the chosen command or text handler share the same session for the current message. Successful processing commits changes once. If processing throws before the commit, the staged changes are discarded. If a custom store fails during the commit, the message stays retryable. A reply or other side effect that already succeeded can run again on retry.
+Middleware and the chosen command or text handler share the same session for the current message. Successful processing commits changes once. If processing throws before the commit, the staged changes are discarded. If a custom store fails during commit, the error is reported and the SDK does not rerun the callback. A reply or other effect that already succeeded is not rolled back.
 
 ## Use a custom session store
 

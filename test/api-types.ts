@@ -132,14 +132,15 @@ function commandNamesOnly(bot: Bot) {
 void commandNamesOnly;
 
 function officialComponents(signer: Signer) {
-  const bot = new Bot<{ count: number }>({ signer, inboundPolicy: allowlist([]) });
-  bot.use(requestTiming({ onTiming: metric => { const status: 'success' | 'failure' = metric.outcome; void status; } }));
-  // @ts-expect-error Inbound identity policies belong to inboundPolicy, not business middleware.
+  const bot = new Bot<{ count: number }>({ signer });
   bot.use(allowlist([]));
-  // @ts-expect-error An asynchronous policy cannot authorize incoming messages.
-  void new Bot({ signer, inboundPolicy: async () => true });
-  // @ts-expect-error Configure sender authorization through inboundPolicy.
+  bot.use(requestTiming({ onTiming: metric => { const status: 'success' | 'failure' = metric.outcome; void status; } }));
+  // @ts-expect-error Configure sender authorization through bot.use(allowlist(...)).
+  void new Bot({ signer, inboundPolicy: () => true });
+  // @ts-expect-error Configure sender authorization through bot.use(allowlist(...)).
   void new Bot({ signer, allowlist: [] });
+  // @ts-expect-error The SDK never replays inbound handlers.
+  bot.retryInbox();
 }
 void officialComponents;
 
@@ -151,5 +152,24 @@ function delayedInput(bot:Bot,event:import('nostr-tools').Event|import('../src/p
   // @ts-expect-error No context/ref wrapper overload.
   bot.thread({event});
   void reply;void thread;
+  void bot.dmHistory(event.pubkey, { limit: 1 });
+  // @ts-expect-error The public local history method is named dmHistory.
+  void bot.history(event.pubkey);
+  void bot.react(event);
+  // @ts-expect-error No ID overload for reactions.
+  void bot.react(event.id);
 }
 void delayedInput;
+
+function sharedContext(ctx: import('../src/index.js').Context) {
+  void ctx.react('👍');
+  // @ts-expect-error Context reactions always target the current input.
+  void ctx.react('👍', ctx.input.id);
+  // @ts-expect-error Message lookup belongs to Bot.
+  void ctx.getMessage(ctx.input.id);
+  // @ts-expect-error Explicit local history lookup belongs to Bot.
+  void ctx.history();
+  // @ts-expect-error Shared handlers consume ctx.input instead of DM storage records.
+  void ctx.message;
+}
+void sharedContext;

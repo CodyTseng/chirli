@@ -17,8 +17,8 @@ async function main(processor: TextProcessor) {
   bot.handle(async ctx => {
     // Developer decides what to send. No history, session, or prompt is sent implicitly.
     const response = await processor.respond({
-      text: ctx.message.text,
-      messageId: ctx.message.id, // Available for application-side idempotency.
+      text: ctx.input.text,
+      messageId: ctx.input.id, // Available for application-side idempotency.
       sender: ctx.sender,
     });
     await ctx.reply(response);

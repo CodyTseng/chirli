@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { StorageAdapter, StoragePayload, StoredMessage, StoredOutbox, MessageState, KeyEvidence, StoredDeclaration, MessageQuery, OutboxQuery, OutboxState, StorageRecord } from '../src/storage.js';
 interface Data {
   schema: 1;
+  claims?: Record<string, true>;
   messages: Record<string, { account: string; row: StoredMessage }>;
   outbox: Record<string, { account: string; row: StoredOutbox }>;
   evidence: Record<string, KeyEvidence>; declarations: Record<string, StoredDeclaration>;
@@ -35,6 +36,11 @@ export class JsonStorage implements StorageAdapter {
   private write<T>(run: () => T): T {
     this.check(); const previous = this.data; this.data = copy(previous);
     try { const result = run(); if (!this.depth) this.persist(); return result; } catch (error) { this.data = previous; throw error; }
+  }
+  claimInput(account: string, id: string): boolean {
+    const claim = key(account,id);
+    if (this.data.claims?.[claim]) return false;
+    return this.write(() => { (this.data.claims ??= {})[claim] = true; return true; });
   }
   insert(account: string, value: StorageRecord): boolean {
     return this.write(() => {

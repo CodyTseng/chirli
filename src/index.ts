@@ -19,7 +19,7 @@ export type { KeySyncOptions } from './key-sync.js';
 
 export type { CommandSyncResult } from './commands.js';
 
-export { allowlist, type InboundPolicy } from './inbound-policy.js';
+export { allowlist } from './allowlist.js';
 export { requestTiming, type RequestTiming, type RequestTimingObserver, type RequestTimingOptions } from './request-timing.js';
 
 export type {Input,ThreadResult,ThreadOptions,PublicThreadOptions} from './public-thread.js';

@@ -23,12 +23,12 @@ test('delayed DM replies and anchored threads match context before and after sam
   for(const event of events){await bot.receive(await wrap(event,peer,bot.pubkey,bot.pubkey,standardEnvelope),'live',{relay:urls[0]});await bot.idle();}
   await user.idle();const target=saved.get(events[2].id)!;assert.deepEqual((contextThread as {entries:Input[]}).entries.map(input=>input.text),['first','second']);assert.deepEqual(await bot.thread(target,{limit:2}),contextThread);
   const result=await bot.reply(target,'after handler',{replyTo:target.id});assert.equal(result.status,'relay-accepted');await user.idle();assert.equal(received.at(-1)!.text,'after handler');assert.equal(received.at(-1)!.event.kind,14);assert.equal(received.at(-1)!.event.tags.find(tag=>tag[0]==='e')?.[1],target.id);
-  await bot.close();bot=make();register();await bot.start();assert.deepEqual(await bot.thread(copy(target),{limit:2}),contextThread);await bot.reply(copy(target),'after restart',{replyTo:target.id});await user.idle();assert.equal(received.at(-1)!.text,'after restart');assert.equal(received.at(-1)!.event.pubkey,bot.pubkey);assert.equal(bot.history(peer.pubkey).messages.find(message=>message.text==='after restart')?.conversation,peer.pubkey);
+  await bot.close();bot=make();register();await bot.start();assert.deepEqual(await bot.thread(copy(target),{limit:2}),contextThread);await bot.reply(copy(target),'after restart',{replyTo:target.id});await user.idle();assert.equal(received.at(-1)!.text,'after restart');assert.equal(received.at(-1)!.event.pubkey,bot.pubkey);assert.equal(bot.dmHistory(peer.pubkey).messages.find(message=>message.text==='after restart')?.conversation,peer.pubkey);
   await assert.rejects(bot.thread(target,{limit:0}),/limit/);await assert.rejects(bot.reply(target,'bad',{replyTo:'bad'}),/reply|ID/i);
  }finally{await bot.close();await user.close();await rm(directory,{recursive:true,force:true});}
 });
 
-for(const kind of [1,1111])test(`kind ${kind}: serialized original public event works after completion and reopen with known source routing`,async()=>{
+for(const kind of [1,1111])test(`kind ${kind}: serialized original public event works after completion and reopen without claiming source provenance`,async()=>{
  const directory=await mkdtemp(join(tmpdir(),'chirli-delayed-public-')),database=join(directory,'test.sqlite'),secret=generateSecretKey(),author=localNip17Identity(),network=new MemoryRelay(),source='ws://source.invalid',write='ws://write.invalid',published:{event:Event;relays:string[]}[]=[];
  const transport=()=>{const wire=network.transport();return{...wire,publish:async(relays:string[],event:Event)=>{published.push({event:copy(event),relays:[...relays]});await wire.publish(relays,event);}};};
  const make=()=>new Bot({signer:nsecSigner(secret),database,relays:urls,writeRelays:[write],publicInbox:{relays:[source]},transport:transport()});
@@ -37,8 +37,9 @@ for(const kind of [1,1111])test(`kind ${kind}: serialized original public event 
  try{await bot.start();const root=await author.sign({kind:1,created_at:1,tags:[],content:'root'});await network.transport().publish([source],root);
   const target=kind===1?await author.sign({kind:1,created_at:2,tags:[['e',root.id,'','root']],content:`/ping@nostr:${npubEncode(bot.pubkey)}`}):await author.sign(commentReply(root,{id:root.id,kind:'1',author:root.pubkey},`/ping@${npubEncode(bot.pubkey)}`));
   assert.equal(await bot.receive(target,'live',{relay:source}),true);await bot.idle();assert.ok(saved);assert.deepEqual(await bot.thread(saved!,{limit:10}),contextThread);
-  const result=await bot.reply(saved!,'after handler',{});assert.equal(result.status,'relay-accepted');assert.equal(published.at(-1)!.event.kind,1111);assert.deepEqual(new Set(published.at(-1)!.relays.map(url=>new URL(url).origin)),new Set([source,write]));assert.equal(threadStructure(published.at(-1)!.event).parent?.id,target.id);
-  await bot.close();bot=make();register();await bot.start();const before=published.length;assert.equal(await bot.receive(target,'live',{relay:source}),false);assert.deepEqual(await bot.thread(copy(saved!),{limit:10}),contextThread);await bot.reply(copy(saved!),'after restart');assert.equal(published.length,before+1);assert.equal(threadStructure(published.at(-1)!.event).root?.id,root.id);assert.deepEqual(new Set(published.at(-1)!.relays.map(url=>new URL(url).origin)),new Set([source,write]));
+  assert.deepEqual(new Set(published.at(-1)!.relays.map(url=>new URL(url).origin)),new Set([source,write]));
+  const result=await bot.reply(saved!,'after handler',{});assert.equal(result.status,'relay-accepted');assert.equal(published.at(-1)!.event.kind,1111);assert.deepEqual(published.at(-1)!.relays,[write]);assert.equal(threadStructure(published.at(-1)!.event).parent?.id,target.id);
+  await bot.close();bot=make();register();await bot.start();const before=published.length;assert.equal(await bot.receive(target,'live',{relay:source}),false);assert.deepEqual(await bot.thread(copy(saved!),{limit:10}),contextThread);await bot.reply(copy(saved!),'after restart');assert.equal(published.length,before+1);assert.equal(threadStructure(published.at(-1)!.event).root?.id,root.id);assert.deepEqual(published.at(-1)!.relays,[write]);
   await assert.rejects(bot.reply(saved!,'invalid',{replyTo:target.id}),/DM send options/);await assert.rejects(bot.thread(saved!,{limit:101}),/limit/);
   // An unseen signed event cannot invent source provenance through its relay hint.
   const unseen=await author.sign({kind:1,created_at:4,content:'unseen',tags:[['p',bot.pubkey,'wss://untrusted.invalid'],['relay','wss://untrusted.invalid']]});await bot.reply(unseen,'explicit application reply');assert.deepEqual(published.at(-1)!.relays,[write]);
@@ -54,7 +55,7 @@ test('unsigned/altered DM input, wrong accounts, IDs, wrappers and invalid publi
   for(const event of [saved!.id,outer,changed,rehashed,recipient,recipientHash,{...saved!,sig:'0'.repeat(128)},rumor(peer.pubkey,bot.pubkey,'never received')]){await assert.rejects(bot.reply(event as never,'must not send'));await assert.rejects(bot.thread(event as never));}
   await assert.rejects(wrong.reply(saved!,'wrong account'),/authenticated incoming/);await assert.rejects(wrong.thread(saved!),/authenticated incoming/);
   const signed=await peer.sign({kind:1,created_at:1,tags:[],content:'public'});for(const event of [{...signed,content:'changed'},{...signed,sig:'0'.repeat(128)}]){await assert.rejects(bot.reply(event,'must not send'),/valid signed/);await assert.rejects(bot.thread(event),/valid signed/);}
-  assert.equal(bot.history(peer.pubkey).messages.filter(message=>message.direction==='outgoing').length,0);assert.equal(wrong.history(peer.pubkey).messages.length,0);
+  assert.equal(bot.dmHistory(peer.pubkey).messages.filter(message=>message.direction==='outgoing').length,0);assert.equal(wrong.dmHistory(peer.pubkey).messages.length,0);
  }finally{await bot.close();await wrong.close();}
 });
 

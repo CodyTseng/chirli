@@ -14,7 +14,7 @@ async function run(signer: Signer, mode: 'nip17' | 'nip4e') {
   let response = '';
 
   bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { await ctx.reply('nsec signer pong'); }, {});
-  peer.handle(({ message }) => { response = message.text; });
+  peer.handle(({ input }) => { response = input.text; });
 
   try {
     await service.start();

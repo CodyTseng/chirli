@@ -1,6 +1,6 @@
 import type { ReplyFileOptions, SendFileOptions, UploadFileOptions } from './blossom.js';
 import type { SessionStore } from './session.js';
-import { Client, type ClientOptions, type ErrorHandler, type IntakeMetadata, type SendOptions, type MessageObserver } from './client.js';
+import { Client, rejectRemovedIntakeOptions, type ClientOptions, type ErrorHandler, type IntakeMetadata, type SendOptions, type MessageObserver } from './client.js';
 import { BotHandlers, type Middleware } from './bot-handlers.js';
 import type { AnnounceOptions } from './keys.js';
 import type { BotCommandOptions, CommandHandler, Context, MessageHandler } from './bot-handlers.js';
@@ -28,8 +28,9 @@ export class Bot<S = Record<string, unknown>> {
 
   #options: ClientOptions;
 
-  constructor({ sessionStore, ...options }: BotOptions<S>) {
-    if ('allowlist' in options) throw new TypeError('Use inboundPolicy: allowlist(pubkeys) for sender authorization');
+  constructor(input: BotOptions<S>) {
+    rejectRemovedIntakeOptions(input);
+    const { sessionStore, ...options } = input;
     this.#options = {
       ...options,
       relays: options.relays?.slice(),
@@ -142,14 +143,13 @@ export class Bot<S = Record<string, unknown>> {
   send(peer: string, text: string, options?: SendOptions) { return this.#ready().send(peer, text, options); }
   uploadFile(data: Uint8Array, options?: UploadFileOptions) { return this.#ready().uploadFile(data, options); }
   sendFile(peer: string, data: Uint8Array, options?: SendFileOptions) { return this.#ready().sendFile(peer, data, options); }
-  history(peer: string, options?: { limit?: number; cursor?: string }) { return this.#ready().history(peer, options); }
-  react(messageId: string, reaction?: string) { return this.#ready().react(messageId, reaction); }
+  dmHistory(peerPubkey: string, options?: { limit?: number; cursor?: string }) { return this.#ready().history(peerPubkey, options); }
+  async react(event: Event | Rumor, reaction?: string) { return this.#ready().react(event, reaction); }
   getMessage(id: string): Message | undefined { return this.#ready().getMessage(id); }
   idle() { return this.#ready().idle(); }
   receive(event: Event, source: 'live' | 'history', metadata?: IntakeMetadata) { return this.#ready().receive(event, source, metadata); }
   getMessageState(id: string) { return this.#ready().getMessageState(id); }
   listMessages(options?: MessageListOptions) { return this.#ready().listMessages(options); }
-  retryInbox(options?: { ids?: readonly string[] }) { return this.#ready().retryInbox(options); }
   async getSession(peer: string): Promise<Partial<S> | undefined> {
     return structuredClone(await this.#handlers.sessionStore(this.#ready()).get(peer));
   }

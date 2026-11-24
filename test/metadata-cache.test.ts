@@ -20,7 +20,7 @@ for(const mode of ['nip17','nip4e'] as const)test(`${mode}: own subscribed state
  const client=new Client({mode,identity:localNip17Identity(),relays:[url],database:':memory:',transport,keySync:false}),peer=localIdentity();
  try{
   await client.announce();await client.start();const before=queries.length;
-  await client.receive(await wrap(rumor(peer.pubkey,client.pubkey,'incoming evidence'),peer,client.pubkey,client.encryptionKeys().currentPublicKey),'history');
+  await client.receive(await wrap(rumor(peer.pubkey,client.pubkey,'incoming evidence'),peer,client.pubkey,client.encryptionKeys().currentPublicKey),'live');await client.idle();
   assert.equal(client.store.evidence(peer.pubkey)?.key,getPublicKey(peer.encryptionKey));
   await client.send(peer.pubkey,'first');assert.equal(queries.length,before+1);assert.deepEqual(queries.at(-1)?.authors,[peer.pubkey]);
   const reply=published.find(item=>item.event.kind===1059&&item.event.tags.some(t=>t[0]==='p'&&t[1]===peer.pubkey))!;assert.deepEqual(reply.relays,[url]);assert.equal(unwrap(reply.event,peer)?.rumor.content,'first');
@@ -45,7 +45,7 @@ test('confirmed absence is cached, concurrent cold requests coalesce, explicit r
 });
 test('all peer lookup failures can use a verified incoming seal key and local inbox fallback, but explicit refresh reports the failure',async()=>{
  const client=new Client({identity:localNip17Identity(),database:':memory:',relays:[url],transport:{query:async()=>{throw new Error('offline');},publish:async()=>{},subscribe:()=>({ready:Promise.resolve(),close(){}}),close(){}}}),peer=localIdentity();
- try{await client.start();await client.receive(await wrap(rumor(peer.pubkey,client.pubkey,'key evidence'),peer,client.pubkey,client.pubkey),'history');assert.equal((await client.send(peer.pubkey,'reply')).status,'relay-accepted');await assert.rejects(client.refreshPeer(peer.pubkey),/offline/);}finally{await client.close();}
+ try{await client.start();await client.receive(await wrap(rumor(peer.pubkey,client.pubkey,'key evidence'),peer,client.pubkey,client.pubkey),'live');await client.idle();assert.equal((await client.send(peer.pubkey,'reply')).status,'relay-accepted');await assert.rejects(client.refreshPeer(peer.pubkey),/offline/);}finally{await client.close();}
 });
 test('key transfer verifies same identity, aliases, freshness and requested held key; never exports identity secrets and deduplicates retries/restart',async()=>{
  const identity=localNip17Identity(),other=localNip17Identity(),encryption=generateSecretKey(),requester=generateSecretKey(),client=getPublicKey(requester),store=new Store(':memory:',generateSecretKey(),'sync-test'),published:Event[]=[];let fail=true,exported=0;
@@ -97,7 +97,7 @@ for(const mode of ['nip17','nip4e'] as const)test(`${mode}: newer authenticated 
  const transport:Transport={...wire,publish:async(relays,event)=>{sent.push(event);await wire.publish(relays,event);}};
  const client=new Client({identity:localNip17Identity(),mode,relays:[url],database:':memory:',transport,keySync:false});
  try{await client.announce();await client.start();await wire.publish([url],await old.sign({kind:10044,created_at:10,tags:[['n',getPublicKey(old.encryptionKey)]],content:''}));await wire.publish([url],await old.sign({kind:10050,created_at:10,tags:[['relay',url]],content:''}));await client.refreshPeer(old.pubkey);
- await client.receive(await wrap(rumor(current.pubkey,client.pubkey,'new signed seal'),current,client.pubkey,client.encryptionKeys().currentPublicKey),'history');await client.send(current.pubkey,'new-key reply');
+ await client.receive(await wrap(rumor(current.pubkey,client.pubkey,'new signed seal'),current,client.pubkey,client.encryptionKeys().currentPublicKey),'live');await client.idle();await client.send(current.pubkey,'new-key reply');
  const reply=sent.find(event=>event.kind===1059&&event.tags[0][1]===current.pubkey)!;assert.equal(unwrap(reply,current)?.rumor.content,'new-key reply');assert.equal(unwrap(reply,old),undefined);
  }finally{await client.close();}
 });

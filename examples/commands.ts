@@ -11,7 +11,7 @@ bot.use(async(ctx,next)=>{try{await next();}catch(error){if(!(error instanceof I
 bot.command({command:'roll',scopes:['kind:14'],args:z.object({sides:z.bigint().min(1n).max(20n).meta({label:'Sides'})})},async(ctx,args)=>{const rolled=randomInt(1,Number(ctx.args.sides)+1);await ctx.reply(`Rolled ${rolled} on a ${args.sides}-sided die.`);});
 bot.command({command:"help",title:"help",description:"Run /help in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { await ctx.reply('Commands: /help, /ping, /roll <1..20>'); });
 bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { await ctx.reply('pong'); });
-bot.handle(async ctx => { await ctx.reply(`Text handler received: ${ctx.message.text}`); });
+bot.handle(async ctx => { await ctx.reply(`Text handler received: ${ctx.input.text}`); });
 try {
   await demo.start();
   for (const [request, expected] of [

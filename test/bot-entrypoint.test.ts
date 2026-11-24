@@ -39,8 +39,8 @@ test('new Bot registers commands before start and publishes discovery before sub
   let authorizationChecks = 0;
   const routedMessages: string[] = [];
   const fallbackMessages: string[] = [];
-  peer.handle(({ message }) => { if (message.text === 'pong') replies++; });
-  bot.handle(({ message }) => { fallbackMessages.push(message.text); });
+  peer.handle(({ input }) => { if (input.text === 'pong') replies++; });
+  bot.handle(({ input }) => { fallbackMessages.push(input.text); });
   bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
     assert.equal(routedMessages.at(-1), '/ping', 'middleware runs before command routing');
     await assert.rejects(bot.close(), /inside a message handler/);
@@ -53,8 +53,8 @@ test('new Bot registers commands before start and publishes discovery before sub
   });
   assert.throws(() => bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, () => {}), /Duplicate/);
   bot.command({command:"denied",title:"denied",description:"Run /denied in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, () => { assert.fail('An unauthorized command must not run'); }, { authorize: () => false });
-  bot.use(async ({ message }, next) => {
-    routedMessages.push(message.text);
+  bot.use(async ({ input }, next) => {
+    routedMessages.push(input.text);
     await next();
   });
   const author = await peerSigner.getPublicKey();

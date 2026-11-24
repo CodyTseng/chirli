@@ -26,9 +26,9 @@ try{
   await stale.start();
   await service.rotateEncryptionKey();assert.notEqual(service.encryptionKeys().currentPublicKey,old);
   await stale.send(service.pubkey,'stale-cache message');await service.idle();
-  assert.equal(service.history(stale.pubkey).messages[0].text,'stale-cache message');
+  assert.equal(service.dmHistory(stale.pubkey).messages[0].text,'stale-cache message');
   await fresh.send(service.pubkey,'fresh-key message');await service.idle();
-  assert.equal(service.history(fresh.pubkey).messages[0].text,'fresh-key message');
+  assert.equal(service.dmHistory(fresh.pubkey).messages[0].text,'fresh-key message');
   console.log('nip4e: rotated; previous key retained for delayed senders.');
   console.log('Default nip17 peer: fresh-key message decrypted.');
   console.log('Memory only; use a persistent database to retain keys across restarts.');

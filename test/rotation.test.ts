@@ -75,7 +75,7 @@ test('rotation stages a durable decryptable key before ACK, coalesces calls, res
  const config={...options(identity,relay,'nip4e'),database:join(dir,'state.db'),storageKey};let client=new Client(config);
  const peer=localIdentity(),oldKey=client.encryptionKeys().currentPublicKey;
  try{
-  await client.announce();
+  await client.start();
   // A message already staged for retry must retain its encrypted bytes through rotation.
   const r=rumor(identity.pubkey,peer.pubkey,'persisted outbound'),event=await wrap(r,Reflect.get(client, 'account'),peer.pubkey,getPublicKey(peer.encryptionKey));
   client.store.putOutbox(r.id,[{event,relays}]);relay.fail=true;relay.acceptBeforeFailure=true;
@@ -85,7 +85,8 @@ test('rotation stages a durable decryptable key before ACK, coalesces calls, res
   const arriving=await wrap(rumor(peer.pubkey,identity.pubkey,'new key before ACK'),peer,identity.pubkey,pending.publicKey);
   assert.equal(await client.receive(arriving,'history'),true);
   await client.close();client=new Client({...config,transport:relay.transport()});assert.equal(client.encryptionKeys().pending?.eventId,pending.eventId);
-  assert.equal(await client.receive(await wrap(rumor(peer.pubkey,identity.pubkey,'after restart pending'),peer,identity.pubkey,pending.publicKey),'history'),true);
+  const afterRestart = await wrap(rumor(peer.pubkey,identity.pubkey,'after restart pending'),peer,identity.pubkey,pending.publicKey);
+  assert.equal(unwrap(afterRestart,Reflect.get(client,'account'))?.rumor.content,'after restart pending','pending key restored before startup');
   relay.fail=false;await client.start();
   assert.equal(client.encryptionKeys().currentPublicKey,pending.publicKey);assert.equal(client.encryptionKeys().pending,undefined);
   assert.equal(client.encryptionKeys().legacy[0].publicKey,oldKey);
@@ -117,7 +118,7 @@ test('legacy count and retirement-age limits apply after successful rotation, no
  let now=Date.now();t.mock.method(Date,'now',()=>now);const relay=new Relay(),identity=localNip17Identity(),peer=localIdentity();
  const client=new Client({...options(identity,relay,'nip4e'),keyRotation:{intervalMs:1000,retainLegacyKeys:2,legacyMaxAgeMs:5000}});
  try{
-  await client.announce();const keys=[client.encryptionKeys().currentPublicKey];
+  await client.start();const keys=[client.encryptionKeys().currentPublicKey];
   for(let i=0;i<3;i++){now+=1100;await client.rotateEncryptionKey();keys.push(client.encryptionKeys().currentPublicKey);}
   assert.deepEqual(client.encryptionKeys().legacy.map(k=>k.publicKey),[keys[2],keys[1]]);
   assert.equal(await client.receive(await wrap(rumor(peer.pubkey,identity.pubkey,'evicted'),peer,identity.pubkey,keys[0]),'history'),false);

@@ -66,8 +66,10 @@ test('standard intake rejects signatures, authors, rumor hashes and recipients b
     await envelope(r, [], false, [receiver.pubkey, outsider.pubkey]),
   ];
   const valid = await envelope(r); invalid.push({ ...valid, sig: '0'.repeat(128) });
-  const client = new Client({ ...options(receiver), mode: 'nip17', nip4eCompatibility:false });
+  const transport: Transport = {query:async()=>[], publish:async()=>{}, subscribe:()=>({ready:Promise.resolve(),close(){}}),close(){}};
+  const client = new Client({ ...options(receiver), mode: 'nip17', nip4eCompatibility:false, transport });
   try {
+    await client.start();
     for (const event of invalid) assert.equal(await client.receive(event, 'live'), false);
     assert.equal(client.history(sender.pubkey).messages.length, 0);
     assert.equal(await client.receive(valid, 'history'), true);
@@ -113,7 +115,7 @@ for (const mode of ['nip4e', 'nip17'] as const) {
       const bot = new Bot<{ count: number }>(bob);
       bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => {
         calls++; ctx.session.setItem('count', (await ctx.session.getItem('count') ?? 0) + 1);
-        assert.equal(ctx.history({ limit: 1 }).coverage, 'local-only');
+        assert.equal((await ctx.thread({ limit: 1 })).coverage, 'local-conversation');
         await ctx.reply('pong');
       });
       bot.handle(() => { fallback++; });
@@ -161,29 +163,32 @@ test('standard publication uses advertised recipient relays, never discovery fal
   } finally { wire.close(); await alice.close(); await bob.close(); await discovery.close(); await inbox.close(); }
 });
 
-test('mode namespace preserves legacy history/inbox/outbox/session and isolates pure-mode restarts', async () => {
+test('mode namespace isolates claimed inputs, accepted history, outbox, sessions and checkpoints on restart', async () => {
   const relay = await testRelay(), dir = await mkdtemp(join(tmpdir(), 'psst-mode-scope-'));
   const secret = generateSecretKey(), split = localIdentity(secret), pure = localNip17Identity(secret), sender = localNip17Identity(), key = generateSecretKey();
   const base = { mode:'nip4e' as const, identity: split, relays: [relay.url], storageKey: key, database: join(dir, 'shared.sqlite') };
   let client = new Client(base);
   try {
-    const legacyRumor = rumor(sender.pubkey, split.pubkey, 'legacy pending inbox');
-    const legacyEvent = await wrap(legacyRumor, sender, split.pubkey, getPublicKey(split.encryptionKey));
-    assert.equal(await client.receive(legacyEvent, 'live'), true);
-    client.store.saveSession(sender.pubkey, { label: 'legacy' }); client.store.saveCheckpoint('ws://scope.invalid',111);
-    client.store.putOutbox('legacy-outbox', [{ event: legacyEvent, relays: [relay.url] }]); await client.close();
+    const splitRumor = rumor(sender.pubkey, split.pubkey, 'split passive claim');
+    const splitEvent = await wrap(splitRumor, sender, split.pubkey, getPublicKey(split.encryptionKey));
+    await client.start();
+    assert.equal(await client.receive(splitEvent, 'history'), true);
+    client.store.saveSession(sender.pubkey, { label: 'split' }); client.store.saveCheckpoint('ws://scope.invalid',111);
+    client.store.putOutbox('split-outbox', [{ event: splitEvent, relays: [relay.url] }]); await client.close();
     client = new Client({ ...base, identity: pure, mode: 'nip17' });
     assert.equal(client.history(sender.pubkey).messages.length, 0); assert.equal(client.store.outbox().length, 0);
     assert.equal(client.store.pending().length, 0); assert.equal(client.store.session(sender.pubkey), undefined); assert.equal(client.store.checkpoint('ws://scope.invalid'),undefined);
     let handled = 0; client.handle(() => { handled++; }); await client.start();
-    assert.equal(await client.receive(legacyEvent, 'live'), true);
+    assert.equal(await client.receive(splitEvent, 'live'), true);
     const standard = await wrap(rumor(sender.pubkey, pure.pubkey, 'pure live'), sender, pure.pubkey, pure.pubkey, standardEnvelope);
     await client.receive(standard, 'live'); await client.idle(); assert.equal(handled, 2);
     client.store.saveSession(sender.pubkey, { label: 'pure' }); client.store.saveCheckpoint('ws://scope.invalid',222); await client.close();
     client = new Client(base);
-    assert.equal(client.store.pending().length, 1); assert.equal(client.store.outbox()[0].id, 'legacy-outbox');
-    assert.deepEqual(client.store.session(sender.pubkey), { label: 'legacy' }); assert.equal(client.store.checkpoint('ws://scope.invalid'),111);
-    assert.equal(client.history(sender.pubkey).messages[0].text, 'legacy pending inbox'); await client.close();
+    assert.equal(client.store.pending().length, 0); assert.equal(client.store.outbox()[0].id, 'split-outbox');
+    assert.deepEqual(client.store.session(sender.pubkey), { label: 'split' }); assert.equal(client.store.checkpoint('ws://scope.invalid'),111);
+    assert.deepEqual(client.history(sender.pubkey).messages,[]);
+    await client.start();
+    assert.equal(await client.receive(splitEvent,'live'),false,'split mode remembers the passive ID without its payload'); await client.close();
     client = new Client({ ...base, identity: pure, mode: 'nip17' });
     assert.ok(client.history(sender.pubkey).messages.some(m=>m.text==='pure live')); assert.deepEqual(client.store.session(sender.pubkey), { label: 'pure' }); assert.equal(client.store.checkpoint('ws://scope.invalid'),222);
   } finally { await client.close(); await relay.close(); await rm(dir, { recursive: true, force: true }); }

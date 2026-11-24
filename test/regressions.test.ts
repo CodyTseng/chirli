@@ -39,19 +39,20 @@ for (const mode of ['nip4e', 'nip17'] as const) {
   });
 }
 
-test('concurrent retryInbox calls never execute the same scheduled rumor twice', async () => {
+test('concurrent duplicate receipts cannot execute a failing rumor twice', async () => {
   const receiver = localIdentity(), sender = localIdentity();
   const transport: Transport = { query: async () => [], subscribe: noSubscription, publish: async () => {}, close() {} };
   const client = new Client({mode:'nip4e', identity: receiver, relays: ['ws://memory.invalid'], transport, database: ':memory:', storageKey: generateSecretKey() });
   let attempts = 0, observed = 0;
   client.onError(async () => { observed++; throw new Error('monitor failure must not escape'); });
-  client.handle(async () => { attempts++; if (attempts === 1) throw new Error('retryable failure'); });
+  client.handle(async () => { attempts++; throw new Error('business failure'); });
   try {
     await client.start();
     const event = await wrap(rumor(sender.pubkey, receiver.pubkey, 'retry once'), sender, receiver.pubkey, getPublicKey(receiver.encryptionKey));
-    await client.receive(event, 'live'); await client.idle(); assert.equal(attempts, 1); assert.equal(observed, 1);
-    await Promise.all([client.retryInbox(), client.retryInbox()]);
-    assert.equal(attempts, 2); assert.equal(client.store.pending().length, 0);
+    assert.deepEqual(await Promise.all([client.receive(event,'live'),client.receive(event,'live')]),[true,false]);
+    await client.idle(); assert.equal(attempts,1); assert.equal(observed,1);
+    await client.stop(); await client.start(); assert.equal(await client.receive(event,'live'),false);
+    assert.equal(attempts,1);
   } finally { await client.close(); }
 });
 
@@ -81,9 +82,10 @@ test('authenticated resubscription keeps newly revealed old commands historical 
   const client = new Client({mode:'nip4e', recovery: false, reconnect: false, identity: receiver, relays: [url], database: ':memory:', storageKey: generateSecretKey() });
   const handled: string[] = []; client.handle(message => { handled.push(message.text); });
   try {
-    await client.start(); await until(() => client.history(sender.pubkey).messages.length === 2); await client.idle();
+    await client.start(); await until(() => handled.length === 1); await client.idle();
     assert.deepEqual(handled, ['new']);
-    assert.equal(client.history(sender.pubkey).messages.find(message => message.text === '/old')?.source, 'history');
+    assert.deepEqual(client.history(sender.pubkey).messages.map(message=>message.text), ['new']);
+    assert.equal(await client.receive(old,'live'),false);
   } finally { await client.close(); for (const ws of server.clients) ws.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
 

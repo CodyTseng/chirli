@@ -281,10 +281,12 @@ test('replyFile routes by the authenticated anchor inside and outside handlers',
       const sent = delivery.filter(({ event }) => event.kind === 1111 && threadStructure(event).parent?.id === target.id);
       // Two identical replies may share an event ID at the same timestamp; capture both publication calls.
       assert.equal(sent.length, 2);
-      for (const { event, relays: destinations } of sent) {
+      for (const [index, { event, relays: destinations }] of sent.entries()) {
         assert.equal(threadStructure(event).root?.id, root.id);
         assert.equal(threadStructure(event).parent?.kind, String(target.kind));
-        assert.deepEqual(new Set(destinations.map(url => new URL(url).origin)), new Set([write, source]));
+        // Only the active handler has trusted source relay context; delayed
+        // calls use configured write relays, including when the outbox retries.
+        assert.deepEqual(new Set(destinations.map(url => new URL(url).origin)), new Set(index === 0 ? [write, source] : [write]));
         assert.equal(event.content, origin + '/' + hash(plain) + '.bin');
         assert.deepEqual(event.tags.find(t => t[0] === 'imeta'),
           ['imeta', 'url ' + event.content, 'm image/png', 'x ' + hash(plain), 'size ' + plain.length]);

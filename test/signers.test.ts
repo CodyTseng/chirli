@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import { localIdentity, localNip17Identity } from '../src/protocol.js';
+import { localIdentity, localNip17Identity, standardEnvelope, wrap } from '../src/protocol.js';
 import { identityFromSigner } from '../src/signers.js';
 import { Client } from './client.js';
 import { test } from 'node:test';
@@ -117,7 +117,7 @@ test('bunker switches to a relay without EOSE and releases both relay connection
   }
 });
 
-test('pure remote decryption failures do not advance recovery checkpoints and can be retried as history', async t => {
+test('pure remote decryption failures leave checkpoints unchanged and recover as ID-only history', async t => {
   const remote = await mockBunker();
   let signer: ReturnType<typeof bunkerSigner> | undefined;
   let client: Client | undefined;
@@ -140,7 +140,8 @@ test('pure remote decryption failures do not advance recovery checkpoints and ca
 
   await client.announce();
   await user.announce();
-  await user.send(identity.pubkey, '/old');
+  const sent = await user.send(identity.pubkey, '/old');
+  const original = user.getMessage(sent.id)!.rumor;
   const requestsBeforeRecovery = remote.methods.length;
   remote.reject('nip44_decrypt');
   await client.start();
@@ -151,7 +152,8 @@ test('pure remote decryption failures do not advance recovery checkpoints and ca
   const [result] = await client.syncHistory();
   assert.equal(result.status, 'window-complete');
   assert.equal(calls, 0);
-  assert.equal(client.history(peer.pubkey).messages[0].text, '/old');
+  assert.deepEqual(client.history(peer.pubkey).messages, []);
+  assert.equal(await client.receive(await wrap(original,peer,identity.pubkey,identity.pubkey,standardEnvelope),'live'),false);
 });
 
 test('bunkerSigner rejects invalid bunker connection URIs', () => {

@@ -28,20 +28,21 @@ test('one command and input API receives kind 14, 1 and 1111; replies preserve p
   assert.equal(threadStructure(replies[0]).root?.id,root.id);assert.equal(threadStructure(replies[1]).root?.id,root.id);assert.equal(threadStructure(replies[1]).parent?.id,child.id);assert.deepEqual(replies[1].tags.filter(tag=>tag[0]==='p'),[['p',author.pubkey]]);
  }finally{await bot.close();}
 });
-test('explicit scopes, verified source, target and identity gate public side effects before persistence',async()=>{
- const {bot}=setup({inboundPolicy:allowlist([author.pubkey])});let calls=0,middleware=0,fallback=0;
+test('explicit scopes, verified source, target and allowlist gate public handlers',async()=>{
+ const {bot}=setup();let calls=0,middleware=0,fallback=0;
+ bot.use(allowlist([author.pubkey]));
  bot.command({command:'ping',scopes:['kind:1','kind:1111']},()=>{calls++;});bot.command({command:'private',scopes:['kind:14']},()=>assert.fail('DM command on public'));bot.use(async(_ctx,next)=>{middleware++;await next();});bot.handle(()=>{fallback++;});
  try{await bot.start();const qualifier=npubEncode(bot.pubkey);
   for(const event of [await note('/ping'),await note(' /ping',[['p',bot.pubkey]]),await note('ordinary reply',[['p',bot.pubkey]]),await note(`/ping@${npubEncode(other.pubkey)}`,[['p',bot.pubkey]]),await note(`/private@${qualifier}`),await note('/ping',[['p',bot.pubkey],['p',other.pubkey]])])assert.equal(await bot.receive(event,'live',{relay:urls[0]}),false);
   const valid=await note(`/ping@${qualifier}`);assert.equal(await bot.receive({...valid,sig:'0'.repeat(128)},'live',{relay:urls[0]}),false);assert.equal(await bot.receive(valid,'live',{relay:'ws://untrusted.invalid'}),false);assert.equal(await bot.receive(valid,'live'),false);
-  const forbidden=await other.sign({kind:1,created_at:1,tags:[['p',bot.pubkey]],content:'/ping'});assert.equal(await bot.receive(forbidden,'live',{relay:urls[0]}),false);
-  assert.equal(await bot.receive(valid,'live',{relay:urls[0]}),true);assert.equal(await bot.receive(await note('/ping',[['p',bot.pubkey]]),'live',{relay:urls[0]}),true);await bot.idle();assert.equal(calls,2);assert.equal(middleware,2);assert.equal(fallback,0);assert.equal(bot.history(author.pubkey).messages.length,0);
+  const forbidden=await other.sign({kind:1,created_at:1,tags:[['p',bot.pubkey]],content:'/ping'});assert.equal(await bot.receive(forbidden,'live',{relay:urls[0]}),true);await bot.idle();assert.equal(await bot.receive(forbidden,'live',{relay:urls[1]}),false);
+  assert.equal(await bot.receive(valid,'live',{relay:urls[0]}),true);assert.equal(await bot.receive(await note('/ping',[['p',bot.pubkey]]),'live',{relay:urls[0]}),true);await bot.idle();assert.equal(calls,2);assert.equal(middleware,2);assert.equal(fallback,0);assert.equal(bot.dmHistory(author.pubkey).messages.length,0);
  }finally{await bot.close();}
 });
 test('public replay and replicas deduplicate durably across stop/start and reopen; public sessions stay separate',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'chirli-public-')),database=join(directory,'test.sqlite'),signer=nsecSigner(generateSecretKey()),network=new MemoryRelay();let calls=0;
  const make=()=>new Bot<{count:number}>({signer,database,transport:network.transport(),relays:urls,publicInbox:{relays:urls}});
- const register=(bot:ReturnType<typeof make>)=>bot.command({command:'ping',scopes:['kind:1']},async ctx=>{assert.ok(ctx.conversation.startsWith('public:'));assert.throws(()=>ctx.message,/only available/);assert.throws(()=>ctx.history(),/only available/);ctx.session.setItem('count',(await ctx.session.getItem('count')??0)+1);calls++;});
+ const register=(bot:ReturnType<typeof make>)=>bot.command({command:'ping',scopes:['kind:1']},async ctx=>{assert.ok(ctx.conversation.startsWith('public:'));assert.equal('message' in ctx,false);assert.equal('history' in ctx,false);assert.equal('getMessage' in ctx,false);ctx.session.setItem('count',(await ctx.session.getItem('count')??0)+1);calls++;});
  let bot=make();register(bot);
  try{await bot.start();await bot.setSession(author.pubkey,{count:99});const old=await note(`/ping@${npubEncode(bot.pubkey)}`);assert.equal(await bot.receive(old,'history',{relay:urls[0]}),true);assert.equal(await bot.receive(old,'live',{relay:urls[1]}),false);
   const live=await note('/ping',[['p',bot.pubkey]]);assert.equal(await bot.receive(live,'live',{relay:urls[0]}),true);assert.equal(await bot.receive(live,'live',{relay:urls[1]}),false);await bot.idle();assert.equal(calls,1);assert.deepEqual(await bot.getSession(author.pubkey),{count:99});await bot.stop();await bot.start();assert.equal(await bot.receive(live,'live',{relay:urls[0]}),false);await bot.close();
@@ -79,20 +80,25 @@ test('loopback replicas reconnect without replaying old public commands or dupli
  try{await bot.start();const event=await note(`/ping@nostr:${npubEncode(bot.pubkey)}`);await publisher.publish(relays,event);await until(()=>calls===1);await bot.idle();one.disconnect();two.disconnect();await until(()=>one.connections>=3&&two.connections>=3);await new Promise(resolve=>setTimeout(resolve,80));await bot.idle();assert.equal(calls,1);await publisher.publish(relays,await note('/ping',[['p',bot.pubkey]]));await until(()=>calls===2);await bot.idle();assert.equal([...one.events.values()].filter(e=>e.kind===1111).length,2);
  }finally{await bot.close();publisher.close();await one.close();await two.close();}
 });
-test('failed public processing and outbox retries retain signed identities and isolate public session state',async()=>{
- const {bot,transport,published}=setup();let fail=true,calls=0;
- bot.command({command:'ping',scopes:['kind:1']},async ctx=>{calls++;ctx.session.setItem('value','public');if(fail)throw new Error('retry');await ctx.reply('ok');});
- try{await bot.start();const event=await note('/ping',[['p',bot.pubkey]]);await bot.receive(event,'live',{relay:urls[0]});await bot.idle();assert.equal(calls,1);fail=false;
-  const publish=transport.publish;let rejected=true;transport.publish=async(relays,event)=>{if(event.kind===1111&&rejected){published.push(event);throw new Error('local ACK unavailable');}await publish(relays,event);};
-  await bot.retryInbox({ids:[event.id]});assert.equal(calls,2);const original=published.find(event=>event.kind===1111)!;rejected=false;await bot.flushOutbox();assert.equal(published.filter(event=>event.kind===1111).length,2);assert.equal(published.at(-1)!.id,original.id);assert.equal(await bot.getSession(author.pubkey),undefined);
+test('failed public processing is not replayed; outgoing reply retries retain the signed ID',async()=>{
+ const {bot,transport,published}=setup();let calls=0;
+ bot.command({command:'ping',scopes:['kind:1']},async ctx=>{calls++;ctx.session.setItem('value','public');await ctx.reply('ok');throw new Error('business failure');});
+ const publish=transport.publish;let rejected=true;
+ transport.publish=async(relays,event)=>{if(event.kind===1111&&rejected){published.push(event);throw new Error('local ACK unavailable');}await publish(relays,event);};
+ try{await bot.start();const event=await note('/ping',[['p',bot.pubkey]]);
+  assert.equal(await bot.receive(event,'live',{relay:urls[0]}),true);await bot.idle();assert.equal(calls,1);
+  assert.equal(await bot.receive(event,'live',{relay:urls[1]}),false);
+  const replies=()=>published.filter(event=>event.kind===1111);const original=replies()[0];
+  assert.ok(original);const attempts=replies().length;rejected=false;await bot.flushOutbox();
+  assert.equal(replies().length,attempts+1);assert.ok(replies().every(reply=>reply.id===original.id));await bot.stop();await bot.start();assert.equal(calls,1);assert.equal(await bot.getSession(author.pubkey),undefined);
  }finally{await bot.close();}
 });
 
-test('public pending retries recheck identity policy, and middleware mutation cannot rewrite authenticated routing',async()=>{
- let allowed=true,calls=0;const {bot}=setup({inboundPolicy:()=>allowed});
+test('middleware mutation cannot rewrite authenticated public routing; a failing input stays claimed',async()=>{
+ let calls=0;const {bot}=setup();
  bot.use(async(ctx,next)=>{ctx.input.event.content='/forged';ctx.input.event.pubkey=other.pubkey;await next();});
- bot.command({command:'ping',scopes:['kind:1']},()=>{calls++;throw new Error('retain for retry');});
- try{await bot.start();const event=await note('/ping',[['p',bot.pubkey]]);await bot.receive(event,'live',{relay:urls[0]});await bot.idle();assert.equal(calls,1);allowed=false;await bot.retryInbox();assert.equal(calls,1);allowed=true;await bot.retryInbox();assert.equal(calls,1,'denied pending work is consumed');assert.equal(await bot.receive(event,'live',{relay:urls[0]}),false);}finally{await bot.close();}
+ bot.command({command:'ping',scopes:['kind:1']},()=>{calls++;throw new Error('business failure');});
+ try{await bot.start();const event=await note('/ping',[['p',bot.pubkey]]);assert.equal(await bot.receive(event,'live',{relay:urls[0]}),true);await bot.idle();assert.equal(calls,1);assert.equal(await bot.receive(event,'live',{relay:urls[1]}),false);await bot.stop();await bot.start();assert.equal(calls,1);}finally{await bot.close();}
 });
 test('targeted fallback, truncation and depth bounds are explicit and never include sibling context',async()=>{
  const root=await note('root'),parent=await comment(root,root,'parent'),trigger=await comment(root,parent,'trigger'),queries:Filter[]=[];
@@ -104,18 +110,19 @@ test('targeted fallback, truncation and depth bounds are explicit and never incl
 
 test('public journal write failures neither lose admission nor forget an ACKed exact outbox event',async()=>{
  const {PublicInbox}=await import('../src/public-inbox.js');let stored:unknown,saves=0,failAt=0,calls=0;const publications:Event[]=[];
- const store={metadata:()=>structuredClone(stored),saveMetadata:(_key:string,value:unknown)=>{if(++saves===failAt)throw new Error('local disk unavailable');stored=structuredClone(value);}};
+ const claimed=new Set<string>();let failClaim=true;
+ const store={metadata:()=>structuredClone(stored),saveMetadata:(_key:string,value:unknown)=>{if(++saves===failAt)throw new Error('local disk unavailable');stored=structuredClone(value);},claimInput(id:string){if(failClaim)throw new Error('local disk unavailable');if(claimed.has(id))return false;claimed.add(id);return true;}};
  const identity=localNip17Identity(),definition={id:'ping',command:'ping',title:'Ping',description:'Ping',scopes:['kind:1']};
- const inbox=new PublicInbox(identity,store as never,graph([],{publish:async(_relays,event)=>{publications.push(event);}}).transport,{relays:urls},urls,false,()=>[definition],()=>true,async()=>{calls++;},()=>{});
- try{await inbox.start([1]);const event=await note('/ping',[['p',identity.pubkey]]);failAt=saves+1;assert.throws(()=>inbox.receive(event,'live',urls[0]),/disk/);assert.equal(inbox.receive(event,'live',urls[0]),true);await inbox.idle();assert.equal(calls,1);
+ const inbox=new PublicInbox(identity,store as never,graph([],{publish:async(_relays,event)=>{publications.push(event);}}).transport,{relays:urls},urls,false,()=>[definition],async()=>{calls++;},()=>{});
+ try{await inbox.start([1]);const event=await note('/ping',[['p',identity.pubkey]]);assert.throws(()=>inbox.receive(event,'live',urls[0]),/disk/);assert.equal(calls,0);failClaim=false;assert.equal(inbox.receive(event,'live',urls[0]),true);await inbox.idle();assert.equal(calls,1);
   // Reply insertion succeeds, then the ACK checkpoint fails. Retrying must keep the signed ID.
   failAt=saves+2;const result=await inbox.reply({event,relay:urls[0],conversation:'public:e:'+event.id},'pong');assert.equal(result.status,'pending');assert.equal(publications.length,1);await inbox.flush();assert.equal(publications.length,2);assert.equal(publications[0].id,publications[1].id);
  }finally{inbox.stop();await inbox.idle();}
 });
 
-test('public admission exceptions report operational failure without escaping relay callbacks',async()=>{
+test('public middleware exceptions report operational failure without escaping relay callbacks',async()=>{
  const network=new MemoryRelay(),wire=network.transport(),original=new Error('application policy'),errors:unknown[]=[];
- const bot=new Bot({signer:nsecSigner(generateSecretKey()),database:':memory:',transport:network.transport(),relays:urls,publicInbox:{relays:urls},inboundPolicy:()=>{throw original;}});
- bot.onError(error=>{errors.push(error);});bot.command({command:'ping',scopes:['kind:1']},()=>assert.fail('must be denied'));
- try{await bot.start();await wire.publish(urls,await note('/ping',[['p',bot.pubkey]]));await new Promise(resolve=>setImmediate(resolve));assert.ok(errors.includes(original));assert.equal(bot.history(author.pubkey).messages.length,0);}finally{await bot.close();wire.close();}
+ const bot=new Bot({signer:nsecSigner(generateSecretKey()),database:':memory:',transport:network.transport(),relays:urls,publicInbox:{relays:urls}});
+ bot.onError(error=>{errors.push(error);});bot.use(()=>{throw original;});bot.command({command:'ping',scopes:['kind:1']},()=>assert.fail('must be denied'));
+ try{await bot.start();await wire.publish(urls,await note('/ping',[['p',bot.pubkey]]));await new Promise(resolve=>setImmediate(resolve));assert.ok(errors.includes(original));assert.equal(bot.dmHistory(author.pubkey).messages.length,0);}finally{await bot.close();wire.close();}
 });

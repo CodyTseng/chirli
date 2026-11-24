@@ -154,3 +154,105 @@ for (const stage of ['sign', 'publish'] as const) for (const action of ['stop', 
     } finally { gate.resolve(); sync.stop(); await sync.idle(); store.close(); }
   });
 }
+
+test('a stopped Bot rejects DM, public, and own-copy input without consuming their IDs', async () => {
+  const owner = localNip17Identity(), peer = localNip17Identity();
+  const client = new Client({ ...options(transport()), identity: owner, publicInbox: { relays: [url] } });
+  client.registerCommandDefinition({id:'run',command:'run',title:'Run',description:'Run',scopes:['kind:1']});
+  let dm = 0, pub = 0;
+  client.handle(() => { dm++; });
+  client.handlePublic(async () => { pub++; });
+  const incoming = await wrap(rumor(peer.pubkey,owner.pubkey,'post-stop DM'),peer,owner.pubkey,owner.pubkey,standardEnvelope);
+  const self = await wrap(rumor(owner.pubkey,peer.pubkey,'self copy'),owner,owner.pubkey,owner.pubkey,standardEnvelope);
+  const note = await peer.sign({kind:1,content:'/run',tags:[['p',owner.pubkey]],created_at:Math.floor(Date.now()/1000)});
+  try {
+    assert.equal(await client.receive(incoming,'live'),false,'not started yet');
+    await client.start();
+    await client.stop();
+    for(const source of ['live','history'] as const) {
+      assert.equal(await client.receive(incoming,source),false);
+      assert.equal(await client.receive(self,source),false);
+      assert.equal(await client.receive(note,source,{relay:url}),false);
+    }
+    await assert.rejects(client.syncHistory(),/Start the client/);
+    assert.deepEqual(client.history(peer.pubkey).messages,[]);
+    assert.deepEqual([dm,pub],[0,0]);
+    await client.start();
+    assert.equal(await client.receive(incoming,'live'),true);
+    assert.equal(await client.receive(note,'live',{relay:url}),true);
+    assert.equal(await client.receive(self,'history'),true);
+    await client.idle();
+    assert.deepEqual([dm,pub],[1,1]);
+    assert.equal(client.history(peer.pubkey).messages.length,2);
+  } finally { await client.close(); }
+});
+
+for (const rejectDecrypt of [false,true]) test(`a canceled async decrypt cannot ${rejectDecrypt?'report or ':''}claim an input across stop/restart`, {timeout:2000}, async () => {
+  const owner=localNip17Identity(), peer=localNip17Identity(), entered=deferred(), release=deferred();
+  const local=owner.identityEncryption!;
+  let decrypts=0, calls=0, reports=0;
+  const identity={...owner,identityEncryption:{...local,asynchronous:true,async decrypt(text:string,key:string) {
+    if(++decrypts===1) { entered.resolve();await release.promise; }
+    return local.decrypt(text,key);
+  }}};
+  const client=new Client({...options(transport()),identity});
+  client.handle(()=>{calls++;});
+  client.onError(()=>{reports++;});
+  const incoming=await wrap(rumor(peer.pubkey,owner.pubkey,'pending decrypt'),peer,owner.pubkey,owner.pubkey,standardEnvelope);
+  try {
+    await client.start();
+    const slow=client.receive(incoming,'live');
+    await entered.promise;
+    const queued=client.receive(incoming,'history');
+    const stopped=client.stop(), restarted=client.start();
+    assert.equal(await client.receive(incoming,'live'),false);
+    if(rejectDecrypt) release.reject(new Error('late signer failure'));
+    else release.resolve();
+    assert.deepEqual(await Promise.all([slow,queued]),[false,false]);
+    await stopped;await restarted;
+    assert.equal(calls,0);
+    assert.equal(reports,0);
+    assert.equal(decrypts,1,'stop prevents a second signer decrypt and skips the queued copy');
+    assert.equal(await client.receive(incoming,'live'),true);
+    await client.idle();
+    assert.equal(calls,1);
+  } finally { release.resolve();await client.close(); }
+});
+
+test('stale transport callbacks cannot update metadata or deliver DM before or after restart', async () => {
+  const owner=localNip17Identity(), peer=localNip17Identity();
+  const callbacks:{metadata?: (event:Event, source:'live')=>void; dm?: (event:Event, source:'live')=>void}[]=[{},{}];
+  let generation=0, calls=0;
+  const wire=transport({subscribe:(_relays,filter,receive)=>{
+    if(filter.kinds?.includes(1059))callbacks[generation].dm=receive;
+    if(filter.kinds?.includes(10044)&&filter.kinds.includes(4454))callbacks[generation].metadata=receive;
+    return {ready:Promise.resolve(),close(){}};
+  }});
+  const client=new Client({...options(wire),identity:owner});
+  client.handle(()=>{calls++;});
+  const dm=await wrap(rumor(peer.pubkey,owner.pubkey,'late transport callback'),peer,owner.pubkey,owner.pubkey,standardEnvelope);
+  try{
+    await client.start();
+    const before=client.store.declaration(owner.pubkey);
+    const newer=await owner.sign({kind:10044,created_at:(before?.created_at??Math.floor(Date.now()/1000))+10,content:'',tags:[['n',owner.pubkey]]});
+    await client.stop();
+    callbacks[0].metadata!(newer,'live');
+    callbacks[0].dm!(dm,'live');
+    await settle();
+    assert.equal(client.store.declaration(owner.pubkey)?.id,before?.id);
+    assert.equal(calls,0);
+    generation++;
+    await client.start();
+    const afterRestart=client.store.declaration(owner.pubkey);
+    callbacks[0].metadata!(newer,'live');
+    callbacks[0].dm!(dm,'live');
+    await settle();
+    assert.equal(client.store.declaration(owner.pubkey)?.id,afterRestart?.id);
+    assert.equal(calls,0);
+    callbacks[1].metadata!(newer,'live');
+    callbacks[1].dm!(dm,'live');
+    await client.idle();
+    assert.equal(client.store.declaration(owner.pubkey)?.id,newer.id);
+    assert.equal(calls,1);
+  }finally{await client.close();}
+});

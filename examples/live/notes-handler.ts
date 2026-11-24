@@ -31,7 +31,7 @@ export function configureNotes(bot: Bot): void {
 
     // Bounded local context only. Use the command parser for the same qualifier rules as intake.
     for (let page = 0; page < 10 && notes.length < 10; page++) {
-      const history = ctx.history({ limit: 100, cursor });
+      const history = bot.dmHistory(ctx.sender, { limit: 100, cursor });
       for (const message of history.messages) {
         if (message.direction !== 'incoming') continue;
         const parsed = parseCommand(bot.getCommandDefinitions().find(definition=>definition.command===rememberDefinition.command)!, message.rumor, {

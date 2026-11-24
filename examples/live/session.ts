@@ -16,7 +16,7 @@ await runLive<State>('session', 'Send /start, then your name. Later messages cou
   bot.handle(async ctx => {
     const name = await ctx.session.getItem('name');
     if (name === undefined) {
-      const newName = ctx.message.text.trim().slice(0, 80);
+      const newName = ctx.input.text.trim().slice(0, 80);
       if (!newName) {
         await ctx.reply('Please send a name.');
         return;

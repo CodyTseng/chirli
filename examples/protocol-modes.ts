@@ -13,7 +13,7 @@ for (const mode of ['nip4e', 'nip17'] as const) {
     await demo.start();
     const response = await demo.request('/ping');
     assert.equal(response, 'pong');
-    assert.equal(demo.service.history(demo.user.pubkey).coverage, 'local-only');
+    assert.equal(demo.service.dmHistory(demo.user.pubkey).coverage, 'local-only');
     console.log(`${mode}: /ping -> ${response}`);
   } finally { await demo.close(); }
 }

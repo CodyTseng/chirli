@@ -17,7 +17,7 @@ const failures: unknown[] = [];
 peer.onError(error => { failures.push(error); });
 service.onError(error => { failures.push(error); });
 let response = '';
-peer.handle(({ message }) => { response = message.text; });
+peer.handle(({ input }) => { response = input.text; });
 bot.command({command:"ping",title:"ping",description:"Run /ping in a private message.",scopes:['kind:14'],args:z.object({"text":z.string().optional().meta({label:'Text',nipcdType:'text'})})}, async ctx => { await ctx.reply('identity-key pong'); });
 try {
   await peer.start();
@@ -30,7 +30,7 @@ try {
   await service.idle(); await peer.idle();
   if (failures.length) throw new AggregateError(failures, 'Interop demo failed');
   assert.equal(response, 'identity-key pong');
-  assert.equal(service.history(peer.pubkey).messages.length, 2);
+  assert.equal(service.dmHistory(peer.pubkey).messages.length, 2);
   console.log('nip4e peer -> nip17 service: /ping');
   console.log(`nip17 service -> nip4e peer: ${response}`);
   console.log('Identity-key declaration and compatible seals; all events stayed in memory.');

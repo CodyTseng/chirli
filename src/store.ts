@@ -55,6 +55,9 @@ export class Store {
     if (key !== undefined && key.length !== 32) {
       throw new Error('storageKey must contain 32 bytes');
     }
+    if (typeof storage !== 'string' && typeof storage.claimInput !== 'function') {
+      throw new TypeError('StorageAdapter.claimInput must atomically claim canonical input IDs');
+    }
     this.ownsStorage = typeof storage === 'string';
     this.adapter = typeof storage === 'string' ? new SQLiteStorage(storage) : storage;
     if (!this.messageStorage && typeof storage === 'string') {
@@ -119,6 +122,13 @@ export class Store {
     });
     if (!this.transactionDepth) this.recoverMessages();
     return this.messageStorage ? true : inserted;
+  }
+
+  claimInput(id: string): boolean {
+    const result: unknown = this.adapter.claimInput(this.account, id);
+    if (result === true || result === false) return result;
+    void Promise.resolve(result).catch(() => {});
+    throw new TypeError('StorageAdapter.claimInput must return a boolean synchronously');
   }
 
   private queryMessages(query: MessageQuery = {}): StoredMessage[] {

@@ -66,7 +66,8 @@ for (const mode of ['nip17', 'nip4e'] as const) {
       assert.deepEqual(back.tags.find(tag => tag[0] === 'e'), ['e', original.id]);
       assert.deepEqual(back.tags.find(tag => tag[0] === 'p'), ['p', peer.pubkey]);
 
-      const like = await bot.react(original.id);
+      const input = bot.getMessage(original.id)!.rumor;
+      const like = await bot.react(input);
       assert.equal(like.status, 'relay-accepted');
       const events = await botWire.query(relays, { kinds: [1059], '#p': [peer.pubkey] });
       assert.equal(events.map(unwrap).find(event => event.id === like.id)?.content, '+');
@@ -74,13 +75,69 @@ for (const mode of ['nip17', 'nip4e'] as const) {
       assert.equal(handled, 0);
       assert.equal(peer.getMessage(back.id), undefined);
       assert.equal(bot.getMessage(back.id), undefined);
-      await assert.rejects(bot.react('0'.repeat(64)), /not found in local message history/);
-      await assert.rejects(bot.react(original.id, ' '), /Nonempty reaction/);
+      await assert.rejects(bot.react('0'.repeat(64) as never), /Expected an input event, not an ID/);
+      await assert.rejects(bot.react({...input,content:'modified'}), /does not match an authenticated incoming record/);
+      await assert.rejects(bot.react(input, ' '), /Nonempty reaction/);
     } finally {
       await Promise.all([bot.close(), peer.close()]);
       botWire.close();
       peerWire.close();
       await signer.close();
     }
+  });
+}
+
+
+for (const kind of [1,1111] as const) {
+  test(`kind ${kind} reacts directly to the verified public event with configured routing`, async () => {
+    const signer = nsecSigner(generateSecretKey());
+    const author = localNip17Identity(), rootAuthor=localNip17Identity();
+    const write='wss://write.invalid/', source='wss://source.invalid/', attacker='wss://attacker.invalid/';
+    const network=new MemoryRelay(), transport=network.transport();
+    const published: {relays: string[]; event: Event}[]=[];
+    let fail=false;
+    const bot = new Bot({
+      signer, database: ':memory:', dmRelays:[write], discoveryRelays:[], readRelays:[write], writeRelays:[write],
+      publicInbox:{relays:[source]},
+      transport:{...transport,publish:async(relays,event)=>{
+        if(event.kind===7){published.push({relays:[...relays],event});if(fail)throw new Error('mock failure');}
+        await transport.publish(relays,event);
+      }},
+    });
+    let result: Awaited<ReturnType<Bot['react']>> | undefined;
+    bot.command({command:'react',scopes:[`kind:${kind}`]},async ctx=>{result=await ctx.react('👍');});
+    try {
+      await bot.start();
+      const now=Math.floor(Date.now()/1000), root=await rootAuthor.sign({kind:1,created_at:now,tags:[],content:'not the target'});
+      const tags=kind===1
+        ? [['p',bot.pubkey,attacker],['e',root.id,attacker,'mention']]
+        : [['E',root.id,attacker,root.pubkey],['K','1'],['P',root.pubkey],
+           ['e',root.id,attacker,root.pubkey],['k','1'],['p',root.pubkey],['p',bot.pubkey]];
+      const input=await author.sign({kind,created_at:now,tags,content:`/react@nostr:${(await import('nostr-tools/nip19')).npubEncode(bot.pubkey)}`});
+      fail=true;
+      assert.equal(await bot.receive(input,'live',{relay:source}),true);
+      await bot.idle();
+      assert.equal(result?.status,'pending');
+      assert.equal(published.length,1);
+      const [first]=published;
+      assert.equal(first.event.pubkey,bot.pubkey);
+      assert.equal(verifyEvent(first.event),true);
+      assert.equal(first.event.content,'👍');
+      assert.deepEqual(first.relays,[write,source]);
+      assert.deepEqual(first.event.tags,[['e',input.id,source,author.pubkey],['p',author.pubkey],...(kind===1?[]:[['k',String(kind)]])]);
+      assert.equal(JSON.stringify(first).includes(attacker),false);
+      fail=false;
+      await bot.flushOutbox();
+      assert.deepEqual(published[1],first,'outbox resends identical signed kind 7');
+      const delayed=await bot.react(input);
+      assert.equal(delayed.status,'relay-accepted');
+      assert.equal(published[2].event.content,'+');
+      assert.deepEqual(published[2].relays,[write]);
+      assert.deepEqual(published[2].event.tags[0],['e',input.id,'',author.pubkey]);
+      await assert.rejects(bot.react({...input,sig:'0'.repeat(128)}),/Expected a valid signed kind 1\/1111 event/);
+      await assert.rejects(bot.react(input,' '),/Nonempty reaction/);
+      assert.equal(published.length,3);
+      assert.equal(bot.getMessage(input.id),undefined);
+    } finally { await bot.close();transport.close();await signer.close(); }
   });
 }

@@ -46,7 +46,7 @@ try {
   await service.start();
   await peer.start();
   await visit();
-  assert.equal(peer.history(service.pubkey).messages[0].text, 'visit 1');
+  assert.equal(peer.dmHistory(service.pubkey).messages[0].text, 'visit 1');
 
   await service.close();
   service = openService();
@@ -55,7 +55,7 @@ try {
 
   // Sessions recover from SQLite; history comes from the custom message file.
   assert.equal((await service.getSession(peer.pubkey))?.visits, 2);
-  assert.ok(service.history(peer.pubkey).messages.some(message => message.text === 'visit 1'));
+  assert.ok(service.dmHistory(peer.pubkey).messages.some(message => message.text === 'visit 1'));
   assert.ok(!String(await readFile(historyPath)).includes('"visits"'));
   console.log('Custom message storage restart: session visits 1 -> 2; history retained.');
   console.log('Custom storage contains message ciphertext and processing state; sessions and keys stay in internal SQLite.');
