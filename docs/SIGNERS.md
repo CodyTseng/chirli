@@ -8,8 +8,8 @@ import { Bot, nsecSigner, bunkerSigner } from "chirli";
 const signer = nsecSigner(nsecFromYourSecretManager);
 // Alternatively: const signer = bunkerSigner(bunkerUri, { clientSecret: bunkerClientKeyFromYourSecretManager });
 const bot = new Bot({
-	signer,
-	database: "./inbox.sqlite",
+  signer,
+  database: "./inbox.sqlite",
 });
 await bot.start();
 console.log(bot.pubkey);
@@ -38,7 +38,7 @@ The application always owns the signer. Bot never calls its optional `close()`, 
 
 ```ts
 const signer = bunkerSigner(bunkerUri, {
-	clientSecret: bunkerClientKeyFromYourSecretManager,
+  clientSecret: bunkerClientKeyFromYourSecretManager,
 });
 ```
 

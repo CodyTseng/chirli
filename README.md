@@ -46,24 +46,24 @@ import { Bot, nsecSigner } from "chirli";
 
 const signer = nsecSigner(process.env.CHIRLI_NSEC!);
 const bot = new Bot({
-	signer,
-	database: "./chirli.sqlite",
+  signer,
+  database: "./chirli.sqlite",
 });
 
 bot.command({ command: "ping", scopes: ["kind:14"] }, async (ctx) => {
-	await ctx.reply("pong");
+  await ctx.reply("pong");
 });
 
 try {
-	await bot.start();
+  await bot.start();
 
-	console.log(`Bot public key: ${bot.pubkey}`);
-	await new Promise<void>((resolve) => {
-		process.once("SIGINT", () => resolve());
-	});
+  console.log(`Bot public key: ${bot.pubkey}`);
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", () => resolve());
+  });
 } finally {
-	await bot.close();
-	await signer.close();
+  await bot.close();
+  await signer.close();
 }
 ```
 
@@ -77,7 +77,7 @@ Replace the signer without changing handlers:
 import { bunkerSigner } from "chirli";
 
 const signer = bunkerSigner(bunkerUri, {
-	clientSecret: bunkerClientKeyFromYourSecretManager,
+  clientSecret: bunkerClientKeyFromYourSecretManager,
 });
 ```
 
@@ -89,11 +89,11 @@ Use `handle()` to reply to messages that have no matching command:
 
 ```ts
 bot.handle(async (ctx) => {
-	await ctx.reply("Thanks for your message");
+  await ctx.reply("Thanks for your message");
 });
 
 bot.onError((error, message) => {
-	// Forward sanitized diagnostics to your application's monitoring.
+  // Forward sanitized diagnostics to your application's monitoring.
 });
 ```
 
@@ -129,18 +129,18 @@ History is local and paginated. Pass `page.nextCursor` to retrieve older rows; a
 
 ```ts
 const bot = new Bot<{ visits: number }>({
-	signer,
-	database: "./chirli.sqlite",
+  signer,
+  database: "./chirli.sqlite",
 });
 
 bot.command({ command: "visit", scopes: ["kind:14"] }, async (ctx) => {
-	const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
-	ctx.session.setItem("visits", visits);
-	await ctx.reply(`Visit ${visits}`);
+  const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
+  ctx.session.setItem("visits", visits);
+  await ctx.reply(`Visit ${visits}`);
 });
 
 bot.handle(async (ctx) => {
-	await ctx.reply("Try /visit");
+  await ctx.reply("Try /visit");
 });
 ```
 
@@ -152,16 +152,16 @@ Declare a typed argument schema in `command()` for typed arguments. Here `value`
 import { z } from "zod";
 
 bot.command(
-	{
-		command: "count",
-		scopes: ["kind:14"],
-		title: "Count",
-		description: "Read an unsigned count.",
-		args: z.object({ value: z.bigint().meta({ label: "Value" }) }),
-	},
-	async (ctx, { value }) => {
-		await ctx.reply(String(value));
-	},
+  {
+    command: "count",
+    scopes: ["kind:14"],
+    title: "Count",
+    description: "Read an unsigned count.",
+    args: z.object({ value: z.bigint().meta({ label: "Value" }) }),
+  },
+  async (ctx, { value }) => {
+    await ctx.reply(String(value));
+  },
 );
 ```
 
@@ -244,14 +244,14 @@ import { Bot, allowlist, requestTiming } from "chirli";
 const bot = new Bot({ signer });
 bot.use(allowlist(trustedIdentityPubkeys));
 bot.use(
-	requestTiming({
-		onTiming: (metric) => {
-			console.info(metric);
-		},
-	}),
+  requestTiming({
+    onTiming: (metric) => {
+      console.info(metric);
+    },
+  }),
 );
 bot.command({ command: "ping", scopes: ["kind:14"] }, async (ctx) => {
-	await ctx.reply("pong");
+  await ctx.reply("pong");
 });
 await bot.start(); // Command declarations remain automatic.
 ```
@@ -267,10 +267,10 @@ Register one explicitly scoped command for DMs, notes and comments. Public reads
 ```ts
 const bot = new Bot({ signer, publicInbox: { relays: publicInboxRelays } });
 bot.command(
-	{ command: "ping", scopes: ["kind:14", "kind:1", "kind:1111"] },
-	async (ctx) => {
-		await ctx.reply("pong");
-	},
+  { command: "ping", scopes: ["kind:14", "kind:1", "kind:1111"] },
+  async (ctx) => {
+    await ctx.reply("pong");
+  },
 );
 await bot.start();
 ```

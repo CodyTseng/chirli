@@ -11,23 +11,23 @@ import { z } from "zod";
 
 const bot = new Bot({ signer });
 bot.command({ command: "ping", scopes: ["kind:14"] }, async (ctx) => {
-	await ctx.reply("pong");
+  await ctx.reply("pong");
 });
 bot.command(
-	{
-		command: "sum",
-		scopes: ["kind:14"],
-		title: "Sum",
-		description: "Add two integers.",
-		args: z.object({
-			left: z.bigint().meta({ label: "Left" }),
-			right: z.bigint().meta({ label: "Right" }),
-		}),
-	},
-	async (ctx, { left, right }) => {
-		await ctx.reply(String(left + right));
-	},
-	{ authorize: (ctx) => allowedSenders.has(ctx.sender) },
+  {
+    command: "sum",
+    scopes: ["kind:14"],
+    title: "Sum",
+    description: "Add two integers.",
+    args: z.object({
+      left: z.bigint().meta({ label: "Left" }),
+      right: z.bigint().meta({ label: "Right" }),
+    }),
+  },
+  async (ctx, { left, right }) => {
+    await ctx.reply(String(left + right));
+  },
+  { authorize: (ctx) => allowedSenders.has(ctx.sender) },
 );
 await bot.start();
 ```
@@ -52,7 +52,7 @@ Relays commonly remove the targeted definition after accepting kind 5. Reconcili
 
 ```ts
 bot.command({ command: "help", scopes: ["kind:14"] }, async (ctx) => {
-	await ctx.reply("Available commands…");
+  await ctx.reply("Available commands…");
 });
 // Optional: await the automatic background synchronization before reading a snapshot.
 await bot.syncCommands();
@@ -66,8 +66,8 @@ The published `d` is always the command name in `bot.command()`. Custom `id` arg
 
 ```ts
 const snapshot = await bot.discoverCommands({
-	authors: [knownExecutorPubkey],
-	relays: discoveryRelays,
+  authors: [knownExecutorPubkey],
+  relays: discoveryRelays,
 });
 ```
 

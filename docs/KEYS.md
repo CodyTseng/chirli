@@ -8,15 +8,15 @@ Chirli uses the account identity key in `nip17` mode by default. Set `mode: 'nip
 const day = 24 * 60 * 60 * 1000;
 
 const bot = new Bot({
-	signer,
-	mode: "nip4e",
-	database: "./chirli.sqlite",
-	storageKey,
-	keyRotation: {
-		intervalMs: 30 * day,
-		retainLegacyKeys: 5,
-		legacyMaxAgeMs: 90 * day,
-	},
+  signer,
+  mode: "nip4e",
+  database: "./chirli.sqlite",
+  storageKey,
+  keyRotation: {
+    intervalMs: 30 * day,
+    retainLegacyKeys: 5,
+    legacyMaxAgeMs: 90 * day,
+  },
 });
 
 await bot.start();

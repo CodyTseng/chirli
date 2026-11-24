@@ -28,7 +28,7 @@ Register the command inside the existing `runLive` callback:
 
 ```ts
 bot.command({ command: "hello", scopes: ["kind:14"] }, async (ctx) => {
-	await ctx.reply(`Hello, nostr:${npubEncode(ctx.sender)}!`);
+  await ctx.reply(`Hello, nostr:${npubEncode(ctx.sender)}!`);
 });
 ```
 
@@ -56,27 +56,27 @@ Inside the existing runLive callback, register shared error handling before the 
 
 ```ts
 bot.use(async (ctx, next) => {
-	try {
-		await next();
-	} catch (error) {
-		if (!(error instanceof InvalidArgsError)) throw error;
-		await ctx.reply("Usage: /roll <1..20>");
-	}
+  try {
+    await next();
+  } catch (error) {
+    if (!(error instanceof InvalidArgsError)) throw error;
+    await ctx.reply("Usage: /roll <1..20>");
+  }
 });
 
 bot.command(
-	{
-		command: "roll",
-		scopes: ["kind:14"],
-		args: z.object({
-			sides: z.bigint().min(1n).max(20n).meta({ label: "Sides" }),
-		}),
-	},
-	async (ctx, args) => {
-		// Both entry points contain the same validated output.
-		const rolled = randomInt(1, Number(ctx.args.sides) + 1);
-		await ctx.reply(`Rolled ${rolled} on a ${args.sides}-sided die.`);
-	},
+  {
+    command: "roll",
+    scopes: ["kind:14"],
+    args: z.object({
+      sides: z.bigint().min(1n).max(20n).meta({ label: "Sides" }),
+    }),
+  },
+  async (ctx, args) => {
+    // Both entry points contain the same validated output.
+    const rolled = randomInt(1, Number(ctx.args.sides) + 1);
+    await ctx.reply(`Rolled ${rolled} on a ${args.sides}-sided die.`);
+  },
 );
 ```
 
@@ -92,14 +92,14 @@ Use the conversation’s key-value storage through `ctx.session`. The handler su
 
 ```ts
 const bot = new Bot<{ visits: number }>({
-	signer,
-	database: "./chirli.sqlite",
+  signer,
+  database: "./chirli.sqlite",
 });
 
 bot.command({ command: "visit", scopes: ["kind:14"] }, async (ctx) => {
-	const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
-	ctx.session.setItem("visits", visits);
-	await ctx.reply(`Visit ${visits}`);
+  const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
+  ctx.session.setItem("visits", visits);
+  await ctx.reply(`Visit ${visits}`);
 });
 
 await bot.start();
@@ -115,7 +115,7 @@ Register a handler for messages with no matching command:
 
 ```ts
 bot.handle(async (ctx) => {
-	await ctx.reply("Message received");
+  await ctx.reply("Message received");
 });
 ```
 
@@ -123,7 +123,7 @@ Use `bot.use()` for shared middleware before routing. Use `observe()` for indepe
 
 ```ts
 bot.catch((error, ctx) => {
-	// Observe the failure using your application's sanitized diagnostics.
+  // Observe the failure using your application's sanitized diagnostics.
 });
 ```
 
@@ -160,12 +160,12 @@ import { Bot, nsecSigner } from "chirli";
 
 const signer = nsecSigner(nsecFromYourSecretManager);
 const bot = new Bot({
-	signer,
-	database: "./chirli.sqlite",
+  signer,
+  database: "./chirli.sqlite",
 });
 
 bot.command({ command: "ping", scopes: ["kind:14"] }, async (ctx) => {
-	await ctx.reply("pong", { replyTo: ctx.input.id });
+  await ctx.reply("pong", { replyTo: ctx.input.id });
 });
 
 await bot.start();

@@ -9,11 +9,11 @@ import { Bot, nsecSigner } from "chirli";
 
 const signer = nsecSigner(nsecFromYourSecretManager);
 const bot = new Bot({
-	signer,
-	database: "./chirli.sqlite",
+  signer,
+  database: "./chirli.sqlite",
 });
 bot.command({ command: "ping", scopes: ["kind:14"] }, async (ctx) => {
-	await ctx.reply("pong");
+  await ctx.reply("pong");
 });
 await bot.start();
 console.log(bot.pubkey);
@@ -91,11 +91,11 @@ Await application-owned sends and stop/await application timers before closing B
 
 ```ts
 const detach = bot.handle(async (ctx) => {
-	await ctx.reply("Thanks");
+  await ctx.reply("Thanks");
 });
 
 const unobserve = bot.observe((message) => {
-	// Receipt observation only; no durable success/failure responsibility.
+  // Receipt observation only; no durable success/failure responsibility.
 });
 ```
 
@@ -119,7 +119,7 @@ A `Message` contains rumor `id`, identity `sender`, peer `conversation`, `text`,
 
 ```ts
 const { url, sha256, size, mimeType } = await bot.uploadFile(bytes, {
-	mimeType: "image/png",
+  mimeType: "image/png",
 });
 ```
 
@@ -136,8 +136,8 @@ import { Bot } from "chirli";
 const bot = new Bot({ signer, blossomServers: ["https://files.example.com"] });
 await bot.start();
 const result = await bot.sendFile(peerPubkey, await readFile("report.pdf"), {
-	name: "report.pdf",
-	mimeType: "application/pdf",
+  name: "report.pdf",
+  mimeType: "application/pdf",
 });
 ```
 
@@ -194,7 +194,7 @@ Discovery, signing and pre-commit persistence errors reject. Once committed, net
 ```ts
 const page = bot.dmHistory(peerPubkey, { limit: 20 });
 if (page.nextCursor) {
-	const older = bot.dmHistory(peerPubkey, { cursor: page.nextCursor });
+  const older = bot.dmHistory(peerPubkey, { cursor: page.nextCursor });
 }
 ```
 
@@ -280,17 +280,17 @@ Timing covers the downstream middleware/command/fallback chain, including reply 
 ```ts
 // jobs is an application-owned queue; protect plaintext DM events in its storage.
 bot.command(
-	{ command: "work", scopes: ["kind:14", "kind:1", "kind:1111"] },
-	async (ctx) => {
-		await jobs.add(structuredClone(ctx.input.event));
-	},
+  { command: "work", scopes: ["kind:14", "kind:1", "kind:1111"] },
+  async (ctx) => {
+    await jobs.add(structuredClone(ctx.input.event));
+  },
 );
 
 // After the handler finishes, with this Bot started and its account store available:
 async function processJob(event: Event | Rumor) {
-	const prior = await bot.thread(event, { limit: 30 });
-	const text = await applicationProcessor(prior.entries);
-	return bot.reply(event, text);
+  const prior = await bot.thread(event, { limit: 30 });
+  const text = await applicationProcessor(prior.entries);
+  return bot.reply(event, text);
 }
 ```
 
@@ -311,28 +311,28 @@ import { z } from "zod";
 import { InvalidArgsError } from "chirli";
 
 bot.use(async (ctx, next) => {
-	try {
-		await next();
-	} catch (error) {
-		if (!(error instanceof InvalidArgsError)) throw error;
-		await ctx.reply(`Usage error for /${error.command}`);
-	}
+  try {
+    await next();
+  } catch (error) {
+    if (!(error instanceof InvalidArgsError)) throw error;
+    await ctx.reply(`Usage error for /${error.command}`);
+  }
 });
 
 bot.command(
-	{
-		command: "pick",
-		scopes: ["kind:14", "kind:1", "kind:1111"],
-		args: z.object({
-			user: z.string().meta({ label: "User", nipcdType: "pubkey" }),
-			count: z.bigint().min(1n).max(10n).meta({ label: "Count" }),
-			mode: z.enum(["short", "full"]).optional().meta({ label: "Mode" }),
-		}),
-	},
-	async (ctx, args) => {
-		// ctx.args and args are the same validated result; count is bigint.
-		await ctx.reply(`${ctx.args.mode ?? "short"}: ${args.count}`);
-	},
+  {
+    command: "pick",
+    scopes: ["kind:14", "kind:1", "kind:1111"],
+    args: z.object({
+      user: z.string().meta({ label: "User", nipcdType: "pubkey" }),
+      count: z.bigint().min(1n).max(10n).meta({ label: "Count" }),
+      mode: z.enum(["short", "full"]).optional().meta({ label: "Mode" }),
+    }),
+  },
+  async (ctx, args) => {
+    // ctx.args and args are the same validated result; count is bigint.
+    await ctx.reply(`${ctx.args.mode ?? "short"}: ${args.count}`);
+  },
 );
 ```
 

@@ -4,10 +4,10 @@ Set each relay role independently. The common `relays` option supplies any role 
 
 ```ts
 const bot = new Bot({
-	signer,
-	dmRelays: ["wss://inbox.example"],
-	readRelays: ["wss://read.example"],
-	writeRelays: ["wss://write.example"],
+  signer,
+  dmRelays: ["wss://inbox.example"],
+  readRelays: ["wss://read.example"],
+  writeRelays: ["wss://write.example"],
 });
 await bot.start();
 ```

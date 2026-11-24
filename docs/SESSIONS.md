@@ -8,19 +8,19 @@ Use `ctx.session` to keep business state between messages in the same DM convers
 import { Bot } from "chirli";
 
 const bot = new Bot<{ visits: number }>({
-	signer,
-	database: "./bot.sqlite",
+  signer,
+  database: "./bot.sqlite",
 });
 
 bot.command({ command: "visit", scopes: ["kind:14"] }, async (ctx) => {
-	const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
-	ctx.session.setItem("visits", visits);
-	await ctx.reply(`Visit ${visits}`);
+  const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
+  ctx.session.setItem("visits", visits);
+  await ctx.reply(`Visit ${visits}`);
 });
 
 bot.command({ command: "reset", scopes: ["kind:14"] }, async (ctx) => {
-	ctx.session.clear();
-	await ctx.reply("Session reset.");
+  ctx.session.clear();
+  await ctx.reply("Session reset.");
 });
 
 await bot.start();
@@ -64,35 +64,35 @@ const write = db.prepare(`
 `);
 
 const sessionStore: SessionStore<State> = {
-	get(conversation) {
-		const row = read.get(conversation);
-		if (row === undefined) return undefined;
-		if (typeof row.snapshot !== "string")
-			throw new Error("Invalid session snapshot");
+  get(conversation) {
+    const row = read.get(conversation);
+    if (row === undefined) return undefined;
+    if (typeof row.snapshot !== "string")
+      throw new Error("Invalid session snapshot");
 
-		const value: unknown = JSON.parse(row.snapshot);
-		if (!value || typeof value !== "object" || Array.isArray(value)) {
-			throw new Error("Invalid session snapshot");
-		}
-		if (!("visits" in value)) return {};
-		if (
-			typeof value.visits !== "number" ||
-			!Number.isSafeInteger(value.visits)
-		) {
-			throw new Error("Invalid session count");
-		}
-		return { visits: value.visits };
-	},
-	set(conversation, snapshot) {
-		write.run(conversation, JSON.stringify(snapshot));
-	},
+    const value: unknown = JSON.parse(row.snapshot);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Invalid session snapshot");
+    }
+    if (!("visits" in value)) return {};
+    if (
+      typeof value.visits !== "number" ||
+      !Number.isSafeInteger(value.visits)
+    ) {
+      throw new Error("Invalid session count");
+    }
+    return { visits: value.visits };
+  },
+  set(conversation, snapshot) {
+    write.run(conversation, JSON.stringify(snapshot));
+  },
 };
 
 const bot = new Bot({ signer, sessionStore });
 bot.command({ command: "visit", scopes: ["kind:14"] }, async (ctx) => {
-	const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
-	ctx.session.setItem("visits", visits);
-	await ctx.reply(`Visit ${visits}`);
+  const visits = ((await ctx.session.getItem("visits")) ?? 0) + 1;
+  ctx.session.setItem("visits", visits);
+  await ctx.reply(`Visit ${visits}`);
 });
 await bot.start();
 ```
