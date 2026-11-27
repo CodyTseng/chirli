@@ -1,6 +1,6 @@
 {
   "name": "chirli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -37,6 +37,7 @@
     "example:protocol-modes": "node dist/examples/protocol-modes.js",
     "pack:check": "node scripts/check-package.mjs",
     "pack:release": "npm run build && node scripts/check-package.mjs --write",
+    "release": "npm run pack:release && npm publish \"./${npm_package_name}-${npm_package_version}.tgz\" --access public",
     "prepack": "npm run build",
     "check": "npm run check:style && npm run build && npm run typecheck && npm test && npm run examples:smoke && npm run pack:check",
     "example:signers": "node dist/examples/signers.js",
